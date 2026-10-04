@@ -1,0 +1,2882 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Pure</title>
+<style>
+  :root{
+    --paper:#FBF1F5;
+    --ink:#2E1622;
+    --ink-soft:#7A5A68;
+    --pink:#D9799F;
+    --pink-dark:#B85179;
+    --pink-deep:#8C3459;
+    --pink-pale:#F7DEEA;
+    --pink-line:#EFC2D8;
+    --card:#FFFFFF;
+    --rust:#B4472E;
+    --titlebar:#D9799F;
+    --tab-inactive-text:#FCE9F1;
+    --accent-text:#8C3459;
+    --danger-bg:#FCE7E2;
+  }
+  html[data-theme="dark"]{ --rust:#E8795F; --danger-bg:rgba(232,121,95,0.18); color-scheme:dark; }
+  body.private{
+    --accent-text:#CFCACA;
+    --paper:#1C1C1C; --ink:#F0EEEE; --ink-soft:#A8A3A3;
+    --pink:#8A8A8A; --pink-dark:#6B6B6B; --pink-deep:#3D3D3D;
+    --pink-pale:#2B2B2B; --pink-line:#454545; --card:#262626;
+    --titlebar:#111111; --tab-inactive-text:#D8D4D4;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    background:var(--pink-pale); color:var(--ink);
+    overflow:hidden; user-select:none;
+  }
+  input, textarea{ user-select:text; }
+  svg{ display:block; }
+  #app{ display:flex; flex-direction:column; height:100%; }
+
+  /* --- Barre de fenêtre fusionnée avec le thème --- */
+  #titlebar{ display:flex; align-items:stretch; background:var(--titlebar); -webkit-app-region:drag; flex-shrink:0; }
+  #brand-logo{ display:flex; align-items:center; align-self:center; height:30px; padding:0 7px; margin:0 4px 0 8px; border-radius:10px; -webkit-app-region:no-drag; cursor:pointer; flex-shrink:0; transition:background .15s; }
+  #brand-logo:hover{ background:rgba(255,255,255,0.14); }
+  #brand-logo.active{ background:rgba(255,255,255,0.30); }
+  #brand-logo.active img, #brand-logo.active > span{ box-shadow:0 0 0 2px #fff, 0 0 12px 2px rgba(255,255,255,0.55); }
+  #brand-logo img{ width:22px; height:22px; border-radius:50%; display:block; }
+  #tabstrip{ display:flex; align-items:flex-end; flex:1; padding:8px 6px 0 10px; gap:4px; overflow-x:auto; -webkit-app-region:drag; min-width:0; }
+  .tab{
+    display:flex; align-items:center; gap:7px; max-width:190px; min-width:110px; padding:8px 10px;
+    background:rgba(255,255,255,0.16); border-radius:8px 8px 0 0;
+    font-size:12.5px; color:var(--tab-inactive-text); cursor:pointer; white-space:nowrap; -webkit-app-region:no-drag;
+  }
+  .tab.active{ background:var(--paper); color:var(--ink); font-weight:600; }
+  .tab-favicon{ width:14px; height:14px; flex-shrink:0; border-radius:3px; object-fit:contain; display:none; }
+  .tab .tab-title{ overflow:hidden; text-overflow:ellipsis; flex:1; }
+  .tab .tab-close{ flex-shrink:0; width:16px; height:16px; border-radius:4px; text-align:center; line-height:16px; opacity:0.8; }
+  .tab .tab-close:hover{ background:rgba(0,0,0,0.12); opacity:1; }
+  .tab.drag-origin{ visibility:hidden; }
+  .tab-ghost{ position:fixed; left:0; top:0; z-index:9999; pointer-events:none; will-change:transform; box-shadow:0 6px 18px rgba(0,0,0,0.25); }
+  .tab-ghost.detaching{ border-radius:8px; opacity:.94; box-shadow:0 14px 32px rgba(0,0,0,0.38); }
+  body.tab-dragging, body.tab-dragging *{ cursor:grabbing !important; }
+  body.tab-dragging #content{ pointer-events:none; }
+  body.tab-dragging #titlebar, body.tab-dragging #tabstrip{ -webkit-app-region:no-drag; }
+  body.no-anim *, body.no-anim *::before, body.no-anim *::after{ transition:none !important; animation:none !important; }
+  #new-tab-btn{ width:26px; height:26px; margin:0 4px 4px; border-radius:6px; background:transparent; border:none; font-size:16px; color:#fff; cursor:pointer; flex-shrink:0; -webkit-app-region:no-drag; }
+  #new-tab-btn:hover{ background:rgba(255,255,255,0.22); }
+  #window-controls{ display:flex; flex-shrink:0; -webkit-app-region:no-drag; }
+  .wctl{ width:44px; border:none; background:transparent; color:#fff; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .wctl:hover{ background:rgba(255,255,255,0.2); }
+  .wctl.close:hover{ background:var(--rust); }
+
+  /* --- Barre d'outils --- */
+  #toolbar{ display:flex; align-items:center; gap:4px; background:var(--paper); padding:6px 10px 4px; flex-shrink:0; position:relative; }
+  .nav-btn{
+    width:32px; height:32px; border:none; background:transparent; border-radius:50%;
+    font-size:17px; color:var(--ink-soft); cursor:pointer;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .nav-btn:hover:not(:disabled){ background:var(--pink-pale); color:var(--accent-text); }
+  .nav-btn:disabled{ opacity:0.35; cursor:default; }
+  .nav-btn.toggle-on{ background:var(--pink-pale); color:var(--accent-text); }
+
+  #address-wrap{ flex:1; position:relative; min-width:0; margin:0 6px; }
+  #address-form{ display:flex; }
+  .addr-icon{ position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--ink-soft); pointer-events:none; }
+  #address-bar{
+    width:100%; height:34px; padding:0 16px 0 38px; font-size:13.5px;
+    border:1px solid transparent; border-radius:18px;
+    background:var(--pink-pale); color:var(--ink); outline:none;
+  }
+  #address-bar::placeholder{ color:var(--ink-soft); }
+  #address-bar:focus{ background:var(--card); border-color:var(--pink); }
+  #suggestions{
+    position:absolute; top:calc(100% + 4px); left:0; right:0; background:var(--card);
+    border:1px solid var(--pink-line); border-radius:12px; box-shadow:0 8px 20px rgba(140,52,89,0.12);
+    overflow:hidden; z-index:30; display:none;
+  }
+  #suggestions.open{ display:block; }
+  .sugg-item{ display:flex; align-items:center; gap:10px; padding:9px 14px; font-size:13px; cursor:pointer; }
+  .sugg-item .sugg-icon{ flex-shrink:0; font-size:12px; color:var(--ink-soft); width:16px; text-align:center; }
+  .sugg-item img.sugg-icon{ width:14px; height:14px; object-fit:contain; }
+  .sugg-item .sugg-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .sugg-item:hover, .sugg-item.selected{ background:var(--pink-pale); }
+
+  #star-btn:disabled{ opacity:0.3; }
+  #star-btn.active{ color:var(--accent-text); }
+
+  /* Icônes d'extensions (remplace l'ancien badge "X bloqués") */
+  #ext-icons{ display:flex; align-items:center; gap:2px; margin-left:2px; flex-shrink:0; }
+  .ext-icon-btn{
+    position:relative; width:30px; height:30px; border:none; background:transparent; border-radius:8px;
+    cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .ext-icon-btn:hover{ background:var(--pink-pale); }
+  .ext-icon-btn img{ width:18px; height:18px; object-fit:contain; border-radius:3px; }
+  .ext-icon-btn .badge{
+    position:absolute; bottom:1px; right:1px; min-width:13px; height:13px; padding:0 2px;
+    border-radius:7px; background:var(--pink-deep); color:#fff; font-size:9px; font-weight:700;
+    display:flex; align-items:center; justify-content:center; line-height:1;
+  }
+  #popover-back{ position:fixed; inset:0; z-index:95; display:none; }
+  #popover-back.open{ display:block; }
+  .popover{
+    position:fixed; width:300px; background:var(--card); border:1px solid var(--pink-line);
+    border-radius:14px; box-shadow:0 12px 28px rgba(0,0,0,0.18); z-index:96; overflow:hidden;
+  }
+  .popover-head{ display:flex; flex-direction:column; align-items:center; padding:22px 16px 16px; background:var(--pink-pale); }
+  .popover-head img, .popover-head .glyph{ width:42px; height:42px; margin-bottom:8px; }
+  .popover-head .title{ font-size:13px; font-weight:700; color:var(--ink); }
+  .popover-stats{ padding:14px 18px; }
+  .popover-stat{ display:flex; justify-content:space-between; font-size:12.5px; padding:7px 0; border-bottom:1px solid var(--pink-line); }
+  .popover-stat:last-child{ border-bottom:none; }
+  .popover-stat b{ color:var(--accent-text); }
+  .popover-actions{ display:flex; gap:8px; padding:0 18px 16px; }
+
+  /* Barre d'outils : téléchargements / paramètres / navigation privée */
+  #btn-downloads{ position:relative; }
+  #btn-downloads .dl-badge{
+    position:absolute; top:3px; right:3px; width:7px; height:7px; border-radius:50%;
+    background:var(--pink-deep); display:none;
+  }
+  #btn-downloads.active .dl-badge{ display:block; }
+  #btn-private{ display:flex; align-items:center; gap:5px; padding:0 10px; width:auto; border-radius:14px; font-size:12px; font-weight:600; }
+  #private-pill{ display:none; align-items:center; gap:6px; padding:5px 12px; border-radius:14px; background:var(--pink-pale); color:var(--ink); font-size:12px; font-weight:600; flex-shrink:0; }
+  body.private #private-pill{ display:flex; }
+  body.private #btn-private{ display:none; }
+
+  /* --- Barre de favoris compacte (façon Chromium) --- */
+  #quickbar{ display:flex; align-items:center; gap:2px; padding:2px 10px 6px; background:var(--paper); border-bottom:1px solid var(--pink-line); overflow-x:auto; flex-shrink:0; }
+  #quickbar.empty{ display:none; }
+  #quickbar::-webkit-scrollbar{ height:0; }
+  .qb-apps{ width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; color:var(--ink-soft); cursor:pointer; flex-shrink:0; }
+  .qb-apps:hover{ background:var(--pink-pale); color:var(--accent-text); }
+  .qb-sep{ width:1px; height:16px; background:var(--pink-line); margin:0 6px; flex-shrink:0; }
+  .qb-item{ display:flex; align-items:center; gap:6px; padding:5px 8px; border-radius:6px; font-size:12.5px; color:var(--ink); white-space:nowrap; cursor:pointer; flex-shrink:0; }
+  .qb-item:hover{ background:var(--pink-pale); }
+
+  /* icône de site avec repli sur la première lettre */
+  .ico{ display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; border-radius:4px; overflow:hidden; }
+  .ico img{ width:100%; height:100%; object-fit:contain; }
+  .ico.letter{ background:var(--pink-line); color:var(--accent-text); font-weight:700; }
+
+  /* --- Zone de contenu --- */
+  #content{ flex:1; position:relative; background:#fff; overflow:hidden; }
+  webview{ position:absolute; top:0; left:0; right:0; bottom:0; width:100%; height:100%; display:none; }
+  webview.active{ display:flex; }
+
+  .panel{ position:absolute; top:0; left:0; right:0; bottom:0; display:none; overflow-y:auto; background:var(--paper); z-index:10; }
+  .panel.active{ display:block; }
+
+  /* Menu Pure : tuiles de raccourcis */
+  #tiles{ display:flex; flex-wrap:wrap; justify-content:center; gap:26px 22px; max-width:900px; padding:0 24px; }
+  .tile{ width:112px; text-align:center; cursor:pointer; }
+  .tile-icon{ width:58px; height:58px; border-radius:16px; background:var(--pink-pale); margin:0 auto 10px; display:flex; align-items:center; justify-content:center; }
+  .tile:hover .tile-icon{ background:var(--pink-line); }
+  .tile-label{ font-size:12.5px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tile-add .tile-icon{ color:var(--ink-soft); }
+
+  /* Panneaux historique / extensions */
+  .panel-wrap{ max-width:760px; margin:0 auto; padding:48px 24px 60px; }
+  .panel-head-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; }
+  .panel-heading{ font-family:Georgia,"Times New Roman",serif; font-style:italic; font-size:26px; color:var(--accent-text); }
+  .panel-close{ border:none; background:var(--pink-pale); color:var(--accent-text); border-radius:8px; padding:7px 14px; font-size:13px; cursor:pointer; }
+  .panel-close:hover{ background:var(--pink-line); }
+  .panel-sub{ font-size:13.5px; font-weight:600; color:var(--ink-soft); border-bottom:1px solid var(--pink-line); padding-bottom:8px; margin:26px 0 8px; }
+  .empty-note{ font-size:13px; color:var(--ink-soft); padding:8px 0; }
+
+  .hist-search input, .ext-search input{
+    width:100%; padding:11px 16px; font-size:13.5px; border:1px solid var(--pink-line);
+    border-radius:20px; background:var(--card); color:var(--ink); outline:none;
+  }
+  .hist-search input:focus, .ext-search input:focus{ border-color:var(--pink); }
+  .hist-search{ margin-bottom:14px; }
+  .hist-row{ display:flex; align-items:center; gap:10px; padding:10px 4px; border-bottom:1px solid var(--pink-line); cursor:pointer; }
+  .hist-row:hover{ background:var(--pink-pale); }
+  .hist-favicon{ width:16px; height:16px; object-fit:contain; border-radius:3px; display:none; flex-shrink:0; }
+  .hist-title{ font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .hist-date{ font-size:11px; color:var(--ink-soft); flex-shrink:0; }
+  .clear-history{ margin-top:16px; border:1px solid var(--rust); background:transparent; color:var(--rust); border-radius:8px; padding:7px 14px; font-size:12.5px; cursor:pointer; }
+  .clear-history:hover{ background:var(--danger-bg); }
+
+  .ext-row{ display:flex; align-items:center; gap:12px; padding:12px 4px; border-bottom:1px solid var(--pink-line); }
+  .ext-row.highlight{ background:var(--pink-pale); border-radius:8px; padding:12px 10px; }
+  .ext-info{ flex:1; min-width:0; }
+  .ext-name{ font-size:13.5px; font-weight:600; }
+  .ext-desc{ font-size:12px; color:var(--ink-soft); margin-top:2px; }
+  .ext-version{ font-size:11.5px; color:var(--ink-soft); }
+  .ext-btn{ border:1px solid var(--pink-dark); background:var(--pink-dark); color:#fff; border-radius:16px; padding:6px 14px; font-size:12.5px; cursor:pointer; flex-shrink:0; }
+  .ext-btn:hover:not(:disabled){ background:var(--pink-deep); }
+  .ext-btn:disabled{ background:transparent; color:var(--ink-soft); border-color:var(--pink-line); cursor:default; }
+  .ext-btn.ghost{ background:transparent; color:var(--accent-text); }
+  .ext-btn.ghost:hover:not(:disabled){ background:var(--pink-pale); }
+  .ext-remove{ border:none; background:transparent; color:var(--ink-soft); font-size:16px; cursor:pointer; flex-shrink:0; }
+  .ext-remove:hover{ color:var(--rust); }
+  .ext-status{ font-size:12.5px; color:var(--ink-soft); margin:12px 0 0; min-height:16px; }
+  .ext-status.error{ color:var(--rust); }
+  .ext-note{ font-size:12px; color:var(--ink-soft); line-height:1.6; margin-top:22px; }
+  .ext-folder{ margin-top:16px; }
+
+  /* Panneau Paramètres */
+  .settings-row{ display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 4px; border-bottom:1px solid var(--pink-line); }
+  .settings-row:last-child{ border-bottom:none; }
+  .settings-label{ font-size:13.5px; font-weight:600; }
+  .settings-desc{ font-size:12px; color:var(--ink-soft); margin-top:3px; max-width:420px; }
+  .swatches{ display:flex; gap:8px; flex-wrap:wrap; }
+  .swatch{ width:28px; height:28px; border-radius:50%; cursor:pointer; border:2px solid transparent; }
+  .swatch.selected{ border-color:var(--ink); }
+  .color-custom{ display:flex; align-items:center; gap:8px; }
+  .color-custom input[type="color"]{ width:34px; height:34px; border:1px solid var(--pink-line); border-radius:8px; padding:2px; background:var(--card); cursor:pointer; }
+  .toggle{ position:relative; width:42px; height:24px; border-radius:14px; background:var(--pink-line); cursor:pointer; flex-shrink:0; }
+  .toggle::after{ content:""; position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%; background:#fff; transition:left .15s; }
+  .toggle.on{ background:var(--pink-dark); }
+  .toggle.on::after{ left:20px; }
+
+  /* Panneau Téléchargements */
+  .dl-row{ display:flex; align-items:center; gap:12px; padding:12px 4px; border-bottom:1px solid var(--pink-line); }
+  .dl-info{ flex:1; min-width:0; }
+  .dl-name{ font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dl-meta{ font-size:11.5px; color:var(--ink-soft); margin-top:2px; }
+  .dl-bar{ height:4px; border-radius:2px; background:var(--pink-line); margin-top:6px; overflow:hidden; }
+  .dl-bar-fill{ height:100%; background:var(--pink-dark); }
+
+  /* Barre d'identifiants (enregistrer / remplir un mot de passe) */
+  #credbar{ display:none; align-items:center; gap:10px; padding:7px 12px; background:var(--pink-pale); border-bottom:1px solid var(--pink-line); font-size:12.5px; flex-shrink:0; flex-wrap:wrap; }
+  #credbar.open{ display:flex; }
+  .cred-icon{ color:var(--accent-text); display:flex; }
+  .cred-btn{ border:1px solid var(--pink-dark); background:var(--pink-dark); color:#fff; border-radius:14px; padding:4px 12px; font-size:12px; cursor:pointer; }
+  .cred-btn:hover{ background:var(--pink-deep); }
+  .cred-btn.ghost{ background:transparent; color:var(--accent-text); }
+  .cred-btn.ghost:hover{ background:var(--pink-line); }
+  .cred-input{ border:1px solid var(--pink-line); border-radius:14px; padding:4px 12px; font-size:12px; outline:none; width:200px; }
+  .cred-input:focus{ border-color:var(--pink); }
+  .cred-input.bad{ border-color:var(--rust); }
+  .cred-x{ margin-left:auto; border:none; background:transparent; color:var(--ink-soft); font-size:16px; cursor:pointer; }
+  .cred-x:hover{ color:var(--rust); }
+
+  /* Panneau Mots de passe */
+  .vault-intro{ font-size:13px; color:var(--ink-soft); line-height:1.6; margin-bottom:18px; }
+  .vault-form{ display:flex; flex-direction:column; gap:10px; max-width:380px; }
+  .vault-input{ width:100%; padding:10px 14px; font-size:13.5px; border:1px solid var(--pink-line); border-radius:10px; background:var(--card); color:var(--ink); outline:none; }
+  .vault-input:focus{ border-color:var(--pink); }
+  .vault-form .ext-btn{ align-self:flex-start; }
+  .vault-top{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; gap:10px; }
+  .vault-account{ font-size:13.5px; font-weight:600; }
+  .vault-actions{ display:flex; gap:8px; align-items:center; flex-shrink:0; }
+  .vault-addform{ max-width:none; margin-bottom:18px; padding:14px; background:var(--card); border:1px solid var(--pink-line); border-radius:12px; }
+  .vault-passrow{ display:flex; gap:8px; }
+  .vault-search{ margin-bottom:8px; border-radius:20px; }
+  .vault-row{ display:flex; align-items:center; gap:12px; padding:11px 4px; border-bottom:1px solid var(--pink-line); }
+  .vault-info{ flex:1; min-width:0; }
+  .vault-host{ font-size:13.5px; font-weight:600; }
+  .vault-user{ font-size:12px; color:var(--ink-soft); }
+  .vault-pw{ font-family:Consolas,monospace; font-size:12.5px; color:var(--accent-text); user-select:text; word-break:break-all; }
+  .ext-btn.vault-danger{ color:var(--rust); border-color:var(--rust); margin-top:24px; }
+  .ext-btn.vault-danger:hover:not(:disabled){ background:var(--danger-bg); }
+
+  /* Menu contextuel + fenêtre d'ajout de raccourci */
+  #ctx-menu{ position:fixed; display:none; background:var(--card); border:1px solid var(--pink-line); border-radius:10px; box-shadow:0 8px 20px rgba(140,52,89,0.15); padding:4px; z-index:100; min-width:200px; }
+  .ctx-item{ padding:8px 12px; font-size:12.5px; border-radius:6px; cursor:pointer; }
+  .ctx-item:hover{ background:var(--pink-pale); }
+  .ctx-item.danger{ color:var(--rust); }
+  .ctx-item.disabled{ opacity:0.4; pointer-events:none; }
+  .ctx-sep{ height:1px; background:var(--pink-line); margin:4px 6px; }
+  .seg{ display:flex; background:var(--pink-pale); border:1px solid var(--pink-line); border-radius:10px; padding:2px; flex-shrink:0; }
+  .seg button{ border:none; background:transparent; color:var(--ink-soft); font-size:12.5px; padding:6px 12px; border-radius:8px; cursor:pointer; }
+  .seg button.on{ background:var(--pink-dark); color:#fff; }
+  #modal-back{ position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(46,22,34,0.35); display:none; align-items:center; justify-content:center; z-index:90; }
+  #modal-back.open{ display:flex; }
+  .modal{ background:var(--card); border-radius:16px; padding:22px; width:360px; }
+  .modal h3{ margin:0 0 14px; font-size:16px; font-weight:600; }
+  .modal label{ display:block; font-size:12px; color:var(--ink-soft); margin:10px 0 4px; }
+  .modal input{ width:100%; padding:10px 12px; border:1px solid var(--pink-line); border-radius:8px; font-size:13.5px; outline:none; }
+  .modal input:focus{ border-color:var(--pink); }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+  .modal-error{ color:var(--rust); font-size:12px; min-height:16px; margin-top:8px; }
+
+  /* --- Popup « navigateur par défaut » --- */
+  #default-back{ position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(46,22,34,0.35); display:none; align-items:center; justify-content:center; z-index:95; }
+  #default-back.open{ display:flex; }
+  .dp-modal{ background:var(--card); border-radius:18px; padding:28px 28px 20px; width:430px; max-width:92vw; text-align:center; box-shadow:0 20px 60px rgba(46,22,34,0.28); }
+  .dp-logo{ width:64px; height:64px; margin:0 auto 14px; display:block; }
+  .dp-title{ font-family:Georgia,"Times New Roman",serif; font-style:italic; font-size:25px; color:var(--accent-text); }
+  .dp-text{ font-size:13.5px; line-height:1.55; color:var(--ink-soft); margin:10px 6px 20px; }
+  .dp-actions{ display:flex; justify-content:center; gap:10px; }
+  .dp-actions .ext-btn{ padding:9px 18px; font-size:13px; }
+  .dp-never{ display:flex; align-items:center; justify-content:center; gap:7px; margin-top:16px; font-size:12px; color:var(--ink-soft); cursor:pointer; }
+  .dp-never input{ accent-color:var(--pink-dark); margin:0; }
+
+  /* --- Notification de mise à jour --- */
+  #update-toast{ position:fixed; right:20px; bottom:20px; width:330px; max-width:calc(100vw - 40px); background:var(--card); border-radius:16px; padding:18px 20px 16px; box-shadow:0 14px 44px rgba(46,22,34,0.30); z-index:90; display:none; }
+  #update-toast.open{ display:block; }
+  .ut-title{ font-family:Georgia,"Times New Roman",serif; font-style:italic; font-size:20px; color:var(--accent-text); }
+  .ut-text{ font-size:13px; line-height:1.5; color:var(--ink-soft); margin:6px 0 14px; }
+  .ut-actions{ display:flex; justify-content:flex-end; gap:8px; }
+  .ut-actions .ext-btn{ padding:8px 16px; font-size:12.5px; }
+
+  /* --- Menu Pure --- */
+  #home{ overflow:hidden; }
+  #home.active{ display:block; }
+  #home-bg{ position:absolute; top:0; left:0; right:0; bottom:0; display:none; background-size:cover; background-position:center; background-repeat:no-repeat; }
+  #home.has-wp #home-bg{ display:block; }
+  #home.has-wp #home-bg::after{ content:""; position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,var(--wp-dim,0.25)); }
+  #home-scroll{ position:absolute; top:0; left:0; right:0; bottom:0; overflow-y:auto; z-index:1; }
+  #home-inner{ min-height:100%; display:flex; flex-direction:column; align-items:center; padding:6vh 24px 56px; }
+  #home-hero{ display:flex; flex-direction:column; align-items:center; text-align:center; }
+  #home-logo{ width:44px; height:44px; border-radius:50%; margin-bottom:8px; box-shadow:0 4px 14px rgba(0,0,0,0.25); }
+  #home-label{ font-size:11px; font-weight:700; letter-spacing:3px; text-transform:uppercase; color:var(--ink-soft); margin-bottom:8px; }
+  #home.has-wp #home-label{ color:#fff; text-shadow:0 1px 8px rgba(0,0,0,0.6); }
+  #home-clock{ font-size:78px; font-weight:300; letter-spacing:-2px; line-height:1.05; color:var(--ink); font-variant-numeric:tabular-nums; }
+  #home-greet{ font-family:Georgia,"Times New Roman",serif; font-style:italic; font-size:26px; color:var(--accent-text); margin-top:2px; }
+  #home-date{ font-size:13.5px; color:var(--ink-soft); margin-top:6px; }
+  #home.has-wp #home-clock, #home.has-wp #home-greet, #home.has-wp #home-date{ color:#fff; text-shadow:0 2px 14px rgba(0,0,0,0.55); }
+
+  #home-search{ position:relative; width:min(640px,100%); margin:24px 0 10px; }
+  #hs-input{ width:100%; padding:16px 22px 16px 52px; font-size:16px; border:1px solid var(--pink-line); border-radius:30px; background:var(--card); color:var(--ink); outline:none; box-shadow:0 6px 24px rgba(0,0,0,0.10); }
+  #hs-input:focus{ border-color:var(--pink); box-shadow:0 6px 28px rgba(0,0,0,0.16); }
+  #hs-icon{ position:absolute; left:20px; top:50%; transform:translateY(-50%); color:var(--ink-soft); display:flex; pointer-events:none; }
+  #hs-calc{ display:none; margin:8px auto 0; width:fit-content; padding:6px 16px; border-radius:16px; background:var(--pink-dark); color:#fff; font-size:13.5px; font-weight:600; }
+  #hs-hint{ font-size:12px; color:var(--ink-soft); text-align:center; min-height:16px; margin-top:6px; max-width:640px; }
+  #hs-engines{ display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin-top:8px; }
+  .eng-chip{ border:1px solid var(--pink-line); background:var(--card); color:var(--ink-soft); border-radius:14px; padding:4px 11px; font-size:12px; cursor:pointer; }
+  .eng-chip:hover{ background:var(--pink-pale); }
+  .eng-chip.on{ background:var(--pink-dark); border-color:var(--pink-dark); color:#fff; }
+  #home.has-wp #hs-hint{ color:#fff; text-shadow:0 1px 6px rgba(0,0,0,0.6); }
+  #home.has-wp .eng-chip:not(.on){ background:rgba(0,0,0,0.35); border-color:rgba(255,255,255,0.25); color:#fff; backdrop-filter:blur(8px); }
+
+  #tiles{ margin-top:30px; }
+  #home.has-wp .tile-label{ color:#fff; text-shadow:0 1px 6px rgba(0,0,0,0.7); }
+  #home.has-wp .tile-icon{ background:rgba(255,255,255,0.28); backdrop-filter:blur(10px); }
+  #home.has-wp .tile:hover .tile-icon{ background:rgba(255,255,255,0.42); }
+
+  #home-widgets{ display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:14px; width:min(960px,100%); margin-top:36px; }
+  .hcard{ background:var(--card); border:1px solid var(--pink-line); border-radius:16px; padding:14px 16px 16px; min-height:150px; display:flex; flex-direction:column; min-width:0; }
+  #home.has-wp .hcard{ background:color-mix(in srgb, var(--card) 70%, transparent); backdrop-filter:blur(16px); border-color:rgba(255,255,255,0.18); }
+  .hcard-title{ font-size:12px; font-weight:700; letter-spacing:.6px; text-transform:uppercase; color:var(--ink-soft); margin-bottom:10px; display:flex; justify-content:space-between; }
+  .hcard-title span{ font-weight:500; text-transform:none; letter-spacing:0; }
+  .recent-row{ display:flex; align-items:center; gap:10px; padding:6px 4px; border-radius:8px; cursor:pointer; min-width:0; }
+  .recent-row:hover{ background:var(--pink-pale); }
+  .recent-row .ico{ flex-shrink:0; }
+  .recent-text{ min-width:0; flex:1; }
+  .recent-title{ font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .recent-host{ font-size:11px; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #task-input{ width:100%; border:1px solid var(--pink-line); background:var(--paper); color:var(--ink); border-radius:10px; padding:8px 12px; font-size:13px; outline:none; margin-bottom:8px; }
+  #task-input:focus{ border-color:var(--pink); }
+  #task-list{ list-style:none; margin:0; padding:0; overflow-y:auto; max-height:170px; }
+  .task{ display:flex; align-items:center; gap:9px; padding:5px 2px; font-size:13px; }
+  .task-check{ width:18px; height:18px; border-radius:6px; border:1.5px solid var(--pink-dark); flex-shrink:0; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; color:#fff; }
+  .task.done .task-check{ background:var(--pink-dark); }
+  .task-text{ flex:1; min-width:0; overflow-wrap:anywhere; }
+  .task.done .task-text{ text-decoration:line-through; color:var(--ink-soft); }
+  .task-del{ border:none; background:transparent; color:var(--ink-soft); cursor:pointer; font-size:16px; opacity:0; }
+  .task:hover .task-del{ opacity:1; }
+  .task-del:hover{ color:var(--rust); }
+  #note-area{ flex:1; min-height:110px; resize:none; border:1px solid var(--pink-line); background:var(--paper); color:var(--ink); border-radius:10px; padding:10px 12px; font:13px/1.5 inherit; font-family:inherit; outline:none; }
+  #note-area:focus{ border-color:var(--pink); }
+  #tm-display{ font-size:46px; font-weight:300; text-align:center; font-variant-numeric:tabular-nums; color:var(--ink); }
+  .tm-presets{ display:flex; gap:6px; justify-content:center; margin:6px 0 12px; }
+  .tm-actions{ display:flex; gap:8px; justify-content:center; margin-top:auto; }
+  #shield-count{ font-family:Georgia,"Times New Roman",serif; font-style:italic; font-size:44px; color:var(--accent-text); text-align:center; margin-top:6px; }
+  #w-shield .settings-desc{ text-align:center; margin-top:6px; }
+
+  /* --- Panneau d'outils de développement (à gauche) --- */
+  #dt-pane{ position:absolute; top:0; left:0; bottom:0; width:var(--dt-w,480px); display:none; flex-direction:column; background:var(--card); border-right:1px solid var(--pink-line); z-index:30; }
+  body.dt-open #dt-pane{ display:flex; }
+  #dt-head{ display:flex; align-items:center; justify-content:space-between; padding:5px 8px 5px 12px; font-size:12px; font-weight:600; color:var(--ink-soft); border-bottom:1px solid var(--pink-line); flex-shrink:0; }
+  #dt-close{ border:none; background:transparent; color:var(--ink-soft); font-size:17px; cursor:pointer; border-radius:5px; width:24px; height:24px; line-height:1; }
+  #dt-close:hover{ background:var(--pink-pale); color:var(--rust); }
+  #dt-body{ flex:1; position:relative; min-height:0; }
+  #dt-body webview{ position:absolute; top:0; left:0; right:0; bottom:0; width:100%; height:100%; display:flex; }
+  #dt-resizer{ position:absolute; top:0; right:-3px; bottom:0; width:7px; cursor:col-resize; z-index:3; }
+  #dt-resizer:hover{ background:var(--pink); opacity:.5; }
+  body.dt-open #content > webview{ left:var(--dt-w,480px); width:calc(100% - var(--dt-w,480px)); }
+  body.dt-open #content > .panel{ left:var(--dt-w,480px); }
+  body.dt-open #findbar{ right:16px; }
+
+  /* --- Recherche dans la page --- */
+  #findbar{ position:absolute; top:8px; right:16px; z-index:40; display:none; align-items:center; gap:4px; background:var(--card); border:1px solid var(--pink-line); border-radius:12px; padding:5px 6px 5px 10px; box-shadow:0 8px 22px rgba(0,0,0,0.18); }
+  #findbar.open{ display:flex; }
+  #find-input{ border:none; outline:none; background:transparent; color:var(--ink); font-size:13px; width:190px; }
+  #find-count{ font-size:11.5px; color:var(--ink-soft); min-width:56px; text-align:right; }
+  #findbar button{ border:none; background:transparent; color:var(--ink-soft); width:26px; height:26px; border-radius:6px; cursor:pointer; font-size:14px; }
+  #findbar button:hover{ background:var(--pink-pale); color:var(--accent-text); }
+
+  /* --- Réglages : fond d'écran, moteur --- */
+  .wp-controls{ display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  #wp-thumb{ width:52px; height:34px; border-radius:8px; border:1px solid var(--pink-line); background-size:cover; background-position:center; }
+  #wp-thumb.empty{ background:var(--pink-pale); }
+  .sel{ background:var(--card); color:var(--ink); border:1px solid var(--pink-line); border-radius:10px; padding:7px 10px; font-size:13px; outline:none; }
+  #wp-status:empty{ display:none; }
+  #wp-dim{ width:150px; accent-color:var(--pink-dark); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="titlebar">
+    <div id="brand-logo" title="Menu Pure"><img id="brand-logo-img" src="logo.png" alt="Pure"></div>
+    <div id="private-pill"><span id="private-glyph"></span><span>Navigation privée</span></div>
+    <div id="tabstrip">
+      <button id="new-tab-btn" title="Ouvrir le Menu Pure (Ctrl+T)">+</button>
+    </div>
+    <div id="window-controls">
+      <button class="wctl" id="win-min" title="Réduire">–</button>
+      <button class="wctl" id="win-max" title="Agrandir / restaurer">▢</button>
+      <button class="wctl close" id="win-close" title="Fermer">×</button>
+    </div>
+  </div>
+
+  <div id="toolbar">
+    <button class="nav-btn" id="btn-back" title="Précédent">←</button>
+    <button class="nav-btn" id="btn-forward" title="Suivant">→</button>
+    <button class="nav-btn" id="btn-reload" title="Actualiser">⟳</button>
+    <div id="address-wrap">
+      <span class="addr-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></span>
+      <form id="address-form">
+        <input type="text" id="address-bar" placeholder="Effectuez une recherche sur DuckDuckGo ou saisissez une URL" autocomplete="off">
+      </form>
+      <div id="suggestions"></div>
+    </div>
+    <button class="nav-btn" id="star-btn" title="Ajouter aux favoris">☆</button>
+    <button class="nav-btn" id="btn-history" title="Historique (Ctrl+H)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></button>
+    <button class="nav-btn" id="btn-extensions" title="Extensions"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M10 4a2 2 0 1 1 4 0v1h4a1 1 0 0 1 1 1v4h-1a2 2 0 1 0 0 4h1v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-4h1a2 2 0 1 0 0-4H5V6a1 1 0 0 1 1-1h4V4z"/></svg></button>
+    <button class="nav-btn" id="btn-vault" title="Mots de passe"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2.5 2.5M14 9l2 2"/></svg></button>
+    <button class="nav-btn" id="btn-downloads" title="Téléchargements (Ctrl+J)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4"/><path d="M5 18h14"/></svg><span class="dl-badge"></span></button>
+    <div id="ext-icons"></div>
+    <button class="nav-btn" id="btn-private" title="Nouvelle fenêtre de navigation privée"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2-3 5-4 9-4s7 1 9 4c-2 3-5 4-9 4s-7-1-9-4z"/><circle cx="8.5" cy="12" r="1.6"/><circle cx="15.5" cy="12" r="1.6"/><path d="M2 8c1-1.3 2-2 3-2.4M22 8c-1-1.3-2-2-3-2.4"/></svg><span>Privé</span></button>
+    <button class="nav-btn" id="btn-settings" title="Paramètres"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a7.8 7.8 0 000-3l2-1.5-2-3.4-2.3.9a7.8 7.8 0 00-2.6-1.5L14 2.5h-4l-.5 2.5a7.8 7.8 0 00-2.6 1.5l-2.3-.9-2 3.4 2 1.5a7.8 7.8 0 000 3l-2 1.5 2 3.4 2.3-.9a7.8 7.8 0 002.6 1.5l.5 2.6h4l.5-2.6a7.8 7.8 0 002.6-1.5l2.3.9 2-3.4z"/></svg></button>
+  </div>
+
+  <div id="quickbar" class="empty"></div>
+  <div id="credbar"></div>
+
+  <div id="content">
+    <div id="dt-pane">
+      <div id="dt-head"><span>Outils de développement</span><button id="dt-close" title="Fermer (F12)">×</button></div>
+      <div id="dt-body"></div>
+      <div id="dt-resizer"></div>
+    </div>
+
+    <div id="findbar">
+      <input type="text" id="find-input" placeholder="Rechercher dans la page" autocomplete="off">
+      <span id="find-count"></span>
+      <button id="find-prev" title="Précédent (Maj+Entrée)">↑</button>
+      <button id="find-next" title="Suivant (Entrée)">↓</button>
+      <button id="find-close" title="Fermer (Échap)">×</button>
+    </div>
+
+    <div id="home" class="panel">
+      <div id="home-bg"></div>
+      <div id="home-scroll"><div id="home-inner">
+        <div id="home-hero">
+          <img src="logo.png" id="home-logo" alt="Pure">
+          <div id="home-label">Menu Pure</div>
+          <div id="home-clock">00:00</div>
+          <div id="home-greet">Bonjour</div>
+          <div id="home-date"></div>
+        </div>
+        <form id="home-search" autocomplete="off">
+          <span id="hs-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></span>
+          <input type="text" id="hs-input" autocomplete="off" spellcheck="false">
+          <div id="hs-calc"></div>
+        </form>
+        <div id="hs-hint"></div>
+        <div id="hs-engines"></div>
+        <div id="tiles"></div>
+        <div id="home-widgets">
+          <div class="hcard" id="w-recent"><div class="hcard-title">Reprendre</div><div id="recent-list"></div></div>
+          <div class="hcard" id="w-tasks"><div class="hcard-title">Tâches<span id="task-count"></span></div>
+            <form id="task-form" autocomplete="off"><input type="text" id="task-input" placeholder="Ajouter une tâche…" maxlength="120"></form>
+            <ul id="task-list"></ul></div>
+          <div class="hcard" id="w-notes"><div class="hcard-title">Notes rapides</div><textarea id="note-area" placeholder="Écris ici, tout est enregistré automatiquement…" maxlength="5000" spellcheck="false"></textarea></div>
+          <div class="hcard" id="w-timer"><div class="hcard-title">Minuteur</div>
+            <div id="tm-display">25:00</div>
+            <div class="tm-presets"><button class="eng-chip tm-preset" data-min="5">5 min</button><button class="eng-chip tm-preset" data-min="15">15 min</button><button class="eng-chip tm-preset on" data-min="25">25 min</button><button class="eng-chip tm-preset" data-min="45">45 min</button></div>
+            <div class="tm-actions"><button class="ext-btn" id="tm-toggle">Démarrer</button><button class="ext-btn ghost" id="tm-reset">Réinitialiser</button></div></div>
+          <div class="hcard" id="w-shield"><div class="hcard-title">Pure Shield</div><div id="shield-count">0</div><div class="settings-desc">publicités et traqueurs bloqués depuis l'installation</div></div>
+        </div>
+      </div></div>
+    </div>
+
+    <div id="history" class="panel">
+      <div class="panel-wrap">
+        <div class="panel-head-row">
+          <div class="panel-heading">Historique</div>
+          <button class="panel-close" id="history-close">Fermer</button>
+        </div>
+        <div class="hist-search"><input type="text" id="hist-filter" placeholder="Filtrer l'historique…" autocomplete="off"></div>
+        <div id="hist-list"></div>
+        <div class="empty-note" id="hist-empty" style="display:none;">Aucun historique pour l'instant.</div>
+        <button class="clear-history" id="clear-history-btn">Vider l'historique</button>
+      </div>
+    </div>
+
+    <div id="vault" class="panel"><div class="panel-wrap" id="vault-wrap"></div></div>
+
+    <div id="extensions" class="panel">
+      <div class="panel-wrap">
+        <div class="panel-head-row">
+          <div class="panel-heading">Extensions</div>
+          <button class="panel-close" id="extensions-close">Fermer</button>
+        </div>
+        <div class="ext-search"><input type="text" id="ext-search-input" placeholder="Rechercher une extension, ou coller un lien du Chrome Web Store…" autocomplete="off"></div>
+        <div id="ext-results"></div>
+        <div class="ext-status" id="ext-status"></div>
+
+        <div class="panel-sub">Installées</div>
+        <div id="ext-list"></div>
+        <div class="empty-note" id="ext-empty" style="display:none;">Aucune extension installée.</div>
+
+        <button class="ext-btn ghost ext-folder" id="ext-add-btn">Ajouter un dossier d'extension…</button>
+        <div class="ext-note">Les extensions sont téléchargées depuis le Chrome Web Store et installées localement. Le support d'Electron est partiel : certaines extensions (surtout celles qui reposent sur des API Chrome avancées, ou l'ancien format Manifest V2) peuvent être refusées ou ne pas fonctionner. Actualise tes onglets ouverts après une installation.</div>
+      </div>
+    </div>
+
+    <div id="downloads" class="panel">
+      <div class="panel-wrap">
+        <div class="panel-head-row">
+          <div class="panel-heading">Téléchargements</div>
+          <button class="panel-close" id="downloads-close">Fermer</button>
+        </div>
+        <div id="dl-list"></div>
+        <div class="empty-note" id="dl-empty" style="display:none;">Aucun téléchargement pour l'instant.</div>
+        <button class="clear-history" id="dl-clear-btn">Effacer la liste</button>
+      </div>
+    </div>
+
+    <div id="settings" class="panel">
+      <div class="panel-wrap">
+        <div class="panel-head-row">
+          <div class="panel-heading">Paramètres</div>
+          <button class="panel-close" id="settings-close">Fermer</button>
+        </div>
+
+        <div class="settings-row">
+          <div><div class="settings-label">Couleur du navigateur</div><div class="settings-desc">Change la couleur d'accent de toute l'interface.</div></div>
+          <div class="swatches" id="color-swatches"></div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">Couleur personnalisée</div>
+          <div class="color-custom"><input type="color" id="color-custom-input"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-label">Thème</div><div class="settings-desc">Clair, sombre ou selon Windows. La teinte suit la couleur choisie.</div></div>
+          <div class="seg" id="theme-seg"><button data-theme="light">Clair</button><button data-theme="dark">Sombre</button><button data-theme="system">Auto</button></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-label">Fond d'écran</div><div class="settings-desc">Image ou GIF animé affiché sur le Menu Pure.</div></div>
+          <div class="wp-controls"><div id="wp-thumb" class="empty"></div><button class="ext-btn" id="wp-import">Importer…</button><button class="ext-btn ghost" id="wp-clear">Retirer</button></div>
+        </div>
+        <div class="settings-row" id="wp-dim-row">
+          <div><div class="settings-label">Assombrir le fond</div><div class="settings-desc">Améliore la lisibilité du texte sur l'image.</div></div>
+          <input type="range" id="wp-dim" min="0" max="70" step="5">
+        </div>
+        <div class="ext-status" id="wp-status"></div>
+        <div class="settings-row">
+          <div><div class="settings-label">Moteur de recherche</div><div class="settings-desc">Utilisé par la barre d'adresse et le Menu Pure.</div></div>
+          <select id="engine-select" class="sel"></select>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-label">Animations (images par seconde)</div><div class="settings-desc">Limite la cadence des animations d'onglets et de pages pour économiser le processeur. « Désactivées » supprime toutes les animations.</div></div>
+          <select id="anim-select" class="sel">
+            <option value="0">Désactivées</option>
+            <option value="30">Économie — 30 FPS</option>
+            <option value="60">Standard — 60 FPS</option>
+            <option value="120">Fluide — 120 FPS</option>
+            <option value="999">Maximum (cadence de l'écran)</option>
+          </select>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-label">Widgets du Menu Pure</div><div class="settings-desc">Pages récentes, tâches, notes, minuteur et compteur Pure Shield.</div></div>
+          <div class="toggle" id="toggle-widgets"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-label">Lancer Pure au démarrage de Windows</div><div class="settings-desc">Ouvre automatiquement Pure à l'ouverture de session.</div></div>
+          <div class="toggle" id="toggle-startup"></div>
+        </div>
+        <div class="settings-row" id="update-row" style="display:none;">
+          <div><div class="settings-label">Mises à jour</div><div class="settings-desc" id="update-desc">Recherche de mises à jour…</div></div>
+          <button class="ext-btn" id="update-btn">Rechercher</button>
+        </div>
+        <div class="settings-row" id="update-auto-row" style="display:none;">
+          <div><div class="settings-label">Mises à jour automatiques</div><div class="settings-desc">Pure vérifie au lancement et télécharge la mise à jour en tâche de fond : il ne reste qu'à redémarrer.</div></div>
+          <div class="toggle" id="toggle-autoupdate"></div>
+        </div>
+        <div class="settings-row" id="default-row" style="display:none;">
+          <div><div class="settings-label">Navigateur par défaut</div><div class="settings-desc" id="default-desc">Pure n'est pas encore ton navigateur par défaut.</div></div>
+          <button class="ext-btn" id="default-set-btn">Définir par défaut</button>
+        </div>
+        <div class="settings-row" id="default-ask-row" style="display:none;">
+          <div><div class="settings-label">Proposer Pure comme navigateur par défaut</div><div class="settings-desc">Affiche un rappel au lancement tant que Pure n'est pas le navigateur par défaut.</div></div>
+          <div class="toggle" id="toggle-default-ask"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-label">Effacer les données de navigation</div><div class="settings-desc">Supprime l'historique de cette fenêtre.</div></div>
+          <button class="ext-btn ghost" id="settings-clear-history">Vider l'historique</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="update-toast" role="status">
+  <div class="ut-title" id="ut-title">Pure est à jour</div>
+  <div class="ut-text">Redémarre Pure pour installer la mise à jour. Ça prend quelques secondes et tes onglets sont retrouvés.</div>
+  <div class="ut-actions">
+    <button type="button" class="ext-btn ghost" id="ut-later">Plus tard</button>
+    <button type="button" class="ext-btn" id="ut-install">Redémarrer</button>
+  </div>
+</div>
+<div id="default-back">
+  <div class="modal dp-modal" role="dialog" aria-labelledby="dp-title">
+    <img class="dp-logo" src="logo.png" alt="Pure">
+    <div class="dp-title" id="dp-title">Mets Pure en navigateur par défaut</div>
+    <div class="dp-text">Profite d'une optimisation d'enfer couplée avec une personnalisation forte.</div>
+    <div class="dp-actions">
+      <button type="button" class="ext-btn ghost" id="dp-later">Plus tard</button>
+      <button type="button" class="ext-btn" id="dp-set">Définir par défaut</button>
+    </div>
+    <label class="dp-never"><input type="checkbox" id="dp-never"> Ne plus me le proposer</label>
+  </div>
+</div>
+<div id="popover-back"></div>
+<div id="ctx-menu"></div>
+<div id="modal-back">
+  <form class="modal" id="shortcut-form">
+    <h3>Ajouter un raccourci</h3>
+    <label for="sc-name">Nom</label>
+    <input type="text" id="sc-name" autocomplete="off">
+    <label for="sc-url">Adresse</label>
+    <input type="text" id="sc-url" placeholder="exemple.com" autocomplete="off">
+    <div class="modal-error" id="sc-error"></div>
+    <div class="modal-actions">
+      <button type="button" class="ext-btn ghost" id="sc-cancel">Annuler</button>
+      <button type="submit" class="ext-btn">Ajouter</button>
+    </div>
+  </form>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron');
+const $ = (id) => document.getElementById(id);
+
+const URL_PARAMS = new URLSearchParams(location.search);
+const IS_PRIVATE = URL_PARAMS.get('private') === '1';
+// Fenêtre ouverte en détachant un onglet : elle démarre avec cet onglet et ne touche pas à la session sauvegardée
+const DETACHED_URL = /^(https?|file|chrome-extension):/i.test(URL_PARAMS.get('open') || '') ? URL_PARAMS.get('open') : null;
+const IS_DETACHED = !!DETACHED_URL;
+const PARTITION = IS_PRIVATE ? 'incognito-pure' : 'persist:pure';
+if (IS_PRIVATE) document.body.classList.add('private');
+
+const tabstrip = $('tabstrip'), newTabBtn = $('new-tab-btn'), content = $('content');
+const homeEl = $('home'), tilesEl = $('tiles');
+const historyEl = $('history'), histList = $('hist-list'), histEmpty = $('hist-empty'), histFilter = $('hist-filter'), btnHistory = $('btn-history');
+const extensionsEl = $('extensions'), extList = $('ext-list'), extEmpty = $('ext-empty'), extStatus = $('ext-status'), extResults = $('ext-results'), extSearchInput = $('ext-search-input'), btnExtensions = $('btn-extensions');
+const quickbar = $('quickbar');
+const vaultEl = $('vault'), vaultWrap = $('vault-wrap'), btnVault = $('btn-vault'), credbar = $('credbar');
+const PRELOAD_URL = new URL('webview-preload.js', window.location.href).href;
+const addressForm = $('address-form'), addressBar = $('address-bar'), suggestionsEl = $('suggestions');
+const btnBack = $('btn-back'), btnForward = $('btn-forward'), btnReload = $('btn-reload');
+const starBtn = $('star-btn');
+const ctxMenu = $('ctx-menu'), modalBack = $('modal-back');
+const extIconsEl = $('ext-icons'), popoverBack = $('popover-back');
+const btnDownloads = $('btn-downloads'), downloadsEl = $('downloads'), dlList = $('dl-list'), dlEmpty = $('dl-empty');
+const btnSettings = $('btn-settings'), settingsEl = $('settings');
+const btnPrivate = $('btn-private');
+const findBar = $('findbar'), findInput = $('find-input'), findCount = $('find-count');
+let dt = { open: false, tabId: null, view: null };
+const closedTabs = [];
+
+$('win-min').addEventListener('click', () => ipcRenderer.send('window:minimize'));
+$('win-max').addEventListener('click', () => ipcRenderer.send('window:maximize'));
+$('win-close').addEventListener('click', () => ipcRenderer.send('window:close'));
+
+if (IS_PRIVATE) {
+  // Pas d'historique, pas d'extensions, pas de raccourcis "Pure" visibles en navigation privée
+  btnHistory.style.display = 'none';
+  btnExtensions.style.display = 'none';
+  $('private-glyph').innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2-3 5-4 9-4s7 1 9 4c-2 3-5 4-9 4s-7-1-9-4z"/><circle cx="8.5" cy="12" r="1.6"/><circle cx="15.5" cy="12" r="1.6"/></svg>';
+  $('brand-logo-img').remove();
+  const glyph = document.createElement('span');
+  glyph.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2-3 5-4 9-4s7 1 9 4c-2 3-5 4-9 4s-7-1-9-4z"/><circle cx="8.5" cy="12" r="1.5" fill="#fff" stroke="none"/><circle cx="15.5" cy="12" r="1.5" fill="#fff" stroke="none"/></svg>';
+  glyph.style.cssText = 'display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#000;';
+  $('brand-logo').prepend(glyph);
+}
+
+let tabs = [], activeId = null, nextId = 1;
+let menuOpen = false, lastTabId = null;   // Menu Pure : vue à part, pas un onglet
+let historyCache = [], bookmarksCache = [], bookmarkUrls = new Set();
+let shortcutsCache = [], hiddenTop = [];
+let blockedLifetime = 0;
+
+async function refreshCaches() {
+  historyCache = await ipcRenderer.invoke('store:get-history');
+  bookmarksCache = await ipcRenderer.invoke('store:get-bookmarks');
+  bookmarkUrls = new Set(bookmarksCache.map(b => b.url));
+  const sc = await ipcRenderer.invoke('store:get-shortcuts');
+  shortcutsCache = sc.shortcuts; hiddenTop = sc.hidden;
+}
+
+/* ---------- Utilitaires ---------- */
+const SEARCH_ENGINES = {
+  ddg: { name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=' },
+  google: { name: 'Google', url: 'https://www.google.com/search?q=' },
+  brave: { name: 'Brave', url: 'https://search.brave.com/search?q=' },
+  qwant: { name: 'Qwant', url: 'https://www.qwant.com/?q=' },
+  startpage: { name: 'Startpage', url: 'https://www.startpage.com/do/search?q=' },
+  ecosia: { name: 'Ecosia', url: 'https://www.ecosia.org/search?q=' }
+};
+// Recherche ciblée : "!yt chats" ouvre YouTube ; les mots longs (yt, maps, gh…) marchent aussi sans le "!"
+const BANGS = {
+  yt: ['YouTube', 'https://www.youtube.com/results?search_query=', true],
+  w: ['Wikipédia', 'https://fr.wikipedia.org/w/index.php?search='],
+  wiki: ['Wikipédia', 'https://fr.wikipedia.org/w/index.php?search=', true],
+  g: ['Google', 'https://www.google.com/search?q='],
+  ddg: ['DuckDuckGo', 'https://duckduckgo.com/?q='],
+  br: ['Brave', 'https://search.brave.com/search?q='],
+  maps: ['OpenStreetMap', 'https://www.openstreetmap.org/search?query=', true],
+  gh: ['GitHub', 'https://github.com/search?q=', true],
+  so: ['Stack Overflow', 'https://stackoverflow.com/search?q='],
+  amz: ['Amazon', 'https://www.amazon.fr/s?k=', true],
+  img: ['Images', 'https://duckduckgo.com/?iax=images&ia=images&q=', true],
+  tr: ['Traduction (DeepL)', 'https://www.deepl.com/translator#auto/fr/']
+};
+function currentEngine() { return SEARCH_ENGINES[settingsCache && settingsCache.searchEngine] || SEARCH_ENGINES.ddg; }
+function bangMatch(input) {
+  const m = /^(!?)([a-z]{1,5})\s+(.+)$/i.exec(String(input).trim());
+  if (!m) return null;
+  const b = BANGS[m[2].toLowerCase()];
+  if (!b || (!m[1] && !b[2])) return null;
+  return { name: b[0], url: b[1], query: m[3].trim() };
+}
+function searchUrl(q) {
+  const b = bangMatch(q);
+  return b ? b.url + (b.url.endsWith('/fr/') ? encodeURIComponent(b.query) : encodeURIComponent(b.query)) : currentEngine().url + encodeURIComponent(q);
+}
+function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } }
+function looksLikeUrl(input) {
+  if (/^https?:\/\//i.test(input)) return true;
+  return /^[\w-]+(\.[\w-]+)+(\/.*)?$/.test(input) && !input.includes(' ');
+}
+function localFileUrl(t) {
+  if (/^file:\/\//i.test(t)) return t;
+  const enc = (x) => encodeURI(x).replace(/#/g, '%23').replace(/\?/g, '%3F');
+  if (/^[a-zA-Z]:[\\/]/.test(t)) return 'file:///' + enc(t.replace(/\\/g, '/'));   // C:\dossier\page.html
+  if (/^\\\\[^\\]/.test(t)) return 'file:' + enc(t.replace(/\\/g, '/'));        // \\serveur\partage\page.html
+  return null;
+}
+function resolveInput(input) {
+  const t = input.trim();
+  if (!t) return null;
+  const local = localFileUrl(t);
+  if (local) return local;
+  if (looksLikeUrl(t)) return /^https?:\/\//i.test(t) ? t : 'https://' + t;
+  return searchUrl(t);
+}
+function setFavicon(imgEl, url) {
+  if (!url) { imgEl.style.display = 'none'; return; }
+  imgEl.src = url; imgEl.style.display = '';
+  imgEl.onerror = () => { imgEl.style.display = 'none'; };
+}
+// Icône de site : favicon si dispo, sinon première lettre du nom
+function makeIcon(favicon, title, size) {
+  const wrap = document.createElement('span');
+  wrap.className = 'ico';
+  wrap.style.width = wrap.style.height = size + 'px';
+  const showLetter = () => {
+    wrap.textContent = ((title || '?').trim().charAt(0) || '?').toUpperCase();
+    wrap.classList.add('letter');
+    wrap.style.fontSize = Math.round(size * 0.55) + 'px';
+  };
+  if (!favicon) { showLetter(); return wrap; }
+  const img = document.createElement('img');
+  img.src = favicon;
+  img.onerror = () => { img.remove(); showLetter(); };
+  wrap.appendChild(img);
+  return wrap;
+}
+
+/* ---------- Menu contextuel ---------- */
+function showContextMenu(x, y, items) {
+  ctxMenu.innerHTML = '';
+  items.forEach(it => {
+    const d = document.createElement('div');
+    if (it.separator) { d.className = 'ctx-sep'; ctxMenu.appendChild(d); return; }
+    d.className = 'ctx-item' + (it.danger ? ' danger' : '') + (it.disabled ? ' disabled' : '');
+    d.textContent = it.label;
+    if (!it.disabled) d.addEventListener('click', () => { hideContextMenu(); it.action(); });
+    ctxMenu.appendChild(d);
+  });
+  ctxMenu.style.display = 'block';
+  ctxMenu.style.left = Math.max(4, Math.min(x, window.innerWidth - ctxMenu.offsetWidth - 6)) + 'px';
+  ctxMenu.style.top = Math.max(4, Math.min(y, window.innerHeight - ctxMenu.offsetHeight - 6)) + 'px';
+}
+function hideContextMenu() { ctxMenu.style.display = 'none'; }
+document.addEventListener('click', hideContextMenu);
+document.addEventListener('mousedown', (e) => { if (!e.target.closest || !e.target.closest('#ctx-menu')) hideContextMenu(); }, true);
+
+// Joint des groupes d'entrées de menu avec des séparateurs
+function joinGroups(groups) {
+  const out = [];
+  groups.filter(g => g.length).forEach(g => { if (out.length) out.push({ separator: true }); out.push(...g); });
+  return out;
+}
+function pageAction(id, action, extra) { return ipcRenderer.invoke('page:ctx-action', Object.assign({ id, action }, extra || {})); }
+
+ipcRenderer.on('page:context-menu', (e, msg) => {
+  const tab = tabs.find(t => { try { return t.webview && t.webview.getWebContentsId() === msg.id; } catch (err) { return false; } });
+  if (!tab) return;
+  const p = msg.params, wv = tab.webview, id = msg.id;
+  const r = wv.getBoundingClientRect();
+  const x = msg.x, y = msg.y;                       // position exacte du clic dans la fenêtre
+  const gx = x - r.left, gy = y - r.top;            // même point, dans le repère de la page
+  const hasSel = !!(p.selectionText && p.selectionText.trim());
+  const groups = [];
+
+  if (p.linkURL) groups.push([
+    { label: 'Ouvrir le lien dans un nouvel onglet', action: () => createTab(p.linkURL) },
+    { label: "Copier l'adresse du lien", action: () => pageAction(id, 'copyText', { text: p.linkURL }) }
+  ]);
+  if (p.mediaType === 'image' && p.srcURL) groups.push([
+    { label: "Ouvrir l'image dans un nouvel onglet", action: () => createTab(p.srcURL) },
+    { label: "Enregistrer l'image sous…", action: () => pageAction(id, 'saveImage', { url: p.srcURL }) },
+    { label: "Copier l'image", action: () => pageAction(id, 'copyImage', { x: gx, y: gy }) },
+    { label: "Copier l'adresse de l'image", action: () => pageAction(id, 'copyText', { text: p.srcURL }) }
+  ]);
+  if (p.isEditable) {
+    const f = p.editFlags || {};
+    groups.push([
+      { label: 'Couper', disabled: !f.canCut, action: () => pageAction(id, 'cut') },
+      { label: 'Copier', disabled: !f.canCopy, action: () => pageAction(id, 'copy') },
+      { label: 'Coller', disabled: !f.canPaste, action: () => pageAction(id, 'paste') },
+      { label: 'Tout sélectionner', action: () => pageAction(id, 'selectAll') }
+    ]);
+  } else if (hasSel) {
+    const q = p.selectionText.trim();
+    groups.push([
+      { label: 'Copier', action: () => pageAction(id, 'copy') },
+      { label: 'Rechercher « ' + (q.length > 28 ? q.slice(0, 28) + '…' : q) + ' » sur ' + currentEngine().name, action: () => createTab(searchUrl(q)) }
+    ]);
+  }
+  if (!p.linkURL && !hasSel && !p.isEditable && p.mediaType !== 'image') {
+    let canBack = false, canFwd = false;
+    try { canBack = wv.canGoBack(); canFwd = wv.canGoForward(); } catch (err) { /* page pas prête */ }
+    groups.push([
+      { label: 'Précédent', disabled: !canBack, action: () => wv.goBack() },
+      { label: 'Suivant', disabled: !canFwd, action: () => wv.goForward() },
+      { label: 'Actualiser', action: () => wv.reload() }
+    ]);
+    groups.push([
+      { label: 'Imprimer…', action: () => pageAction(id, 'print') },
+      { label: 'Tout sélectionner', action: () => pageAction(id, 'selectAll') }
+    ]);
+  }
+  groups.push([{ label: 'Inspecter', action: () => openDevToolsFor(tab, { x: gx, y: gy }) }]);
+  showContextMenu(x, y, joinGroups(groups));
+});
+
+// Clic droit dans les champs de l'interface (barre d'adresse, recherche, etc.)
+document.addEventListener('contextmenu', (e) => {
+  const t = e.target;
+  if (!t || !t.closest) return;
+  if (t.closest('.tab') || t.closest('webview')) return;
+  if (t.matches && t.matches('input:not([type=color]):not([type=checkbox]), textarea')) {
+    e.preventDefault();
+    t.focus();
+    const wf = require('electron').webFrame;
+    const hasSel = t.selectionStart !== t.selectionEnd;
+    showContextMenu(e.clientX, e.clientY, [
+      { label: 'Couper', disabled: !hasSel, action: () => wf.cut() },
+      { label: 'Copier', disabled: !hasSel, action: () => wf.copy() },
+      { label: 'Coller', action: () => wf.paste() },
+      { label: 'Tout sélectionner', action: () => t.select() }
+    ]);
+  }
+});
+window.addEventListener('blur', hideContextMenu);
+
+/* ---------- Animations (cadence réglable dans les Paramètres) ---------- */
+const ANIM_FPS_VALUES = [0, 30, 60, 120, 999];   // 0 = désactivées, 999 = cadence de l'écran
+let ANIM_FPS = 60;
+function setAnimFps(v) {
+  v = Number(v);
+  ANIM_FPS = ANIM_FPS_VALUES.includes(v) ? v : 60;
+  document.body.classList.toggle('no-anim', ANIM_FPS === 0);
+}
+// Intervalle minimal entre deux images (marge de 2 ms pour absorber la gigue de requestAnimationFrame)
+function frameGap() { return ANIM_FPS >= 999 ? 0 : Math.max(0, 1000 / ANIM_FPS - 2); }
+const EASE_OUT = (t) => 1 - Math.pow(1 - t, 3);
+
+// Anime step(p) pour p de 0 à 1 en respectant la cadence choisie.
+// Si "owner" est fourni, une nouvelle animation sur le même élément remplace la précédente.
+function runAnim(duration, step, opts) {
+  opts = opts || {};
+  const owner = opts.owner, ease = opts.ease || EASE_OUT;
+  const token = owner ? (owner._animToken = (owner._animToken || 0) + 1) : 0;
+  return new Promise((resolve) => {
+    if (ANIM_FPS === 0 || duration <= 0) { step(1); resolve(); return; }
+    step(0);
+    const gap = frameGap(), t0 = performance.now();
+    let last = -Infinity;
+    function frame() {
+      if (owner && owner._animToken !== token) { resolve(); return; }
+      const now = performance.now();
+      if (now - last < gap) { requestAnimationFrame(frame); return; }
+      last = now;
+      const p = Math.min(1, (now - t0) / duration);
+      step(p < 1 ? ease(p) : 1);
+      if (p < 1) requestAnimationFrame(frame); else resolve();
+    }
+    requestAnimationFrame(frame);
+  });
+}
+
+function tabGap() { return parseFloat(getComputedStyle(tabstrip).columnGap) || 4; }
+function tabMetrics(el) {
+  const cs = getComputedStyle(el);
+  return { w: el.getBoundingClientRect().width, pl: parseFloat(cs.paddingLeft) || 0, pr: parseFloat(cs.paddingRight) || 0 };
+}
+function clearTabAnimStyles(el) {
+  ['width', 'minWidth', 'flex', 'paddingLeft', 'paddingRight', 'marginRight', 'opacity', 'transform', 'overflow', 'pointerEvents'].forEach(k => { el.style[k] = ''; });
+}
+
+// Nouvel onglet : il se déplie depuis la gauche en fondu
+function animateTabIn(el) {
+  if (ANIM_FPS === 0) return;
+  const m = tabMetrics(el), gap = tabGap();
+  el.style.overflow = 'hidden'; el.style.flex = '0 0 auto'; el.style.minWidth = '0';
+  runAnim(230, (p) => {
+    if (p >= 1) { clearTabAnimStyles(el); return; }
+    el.style.width = (m.w * p) + 'px';
+    el.style.paddingLeft = (m.pl * p) + 'px'; el.style.paddingRight = (m.pr * p) + 'px';
+    el.style.marginRight = (-gap * (1 - p)) + 'px';
+    el.style.opacity = String(p);
+    el.style.transform = 'translateY(' + (8 * (1 - p)) + 'px)';
+  }, { owner: el }).then(() => { if (el.isConnected) el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
+}
+
+// Fermeture : l'onglet se replie et s'efface, les voisins glissent pour combler la place
+function animateTabOut(el) {
+  if (ANIM_FPS === 0 || !el.isConnected) { el.remove(); return; }
+  const m = tabMetrics(el), gap = tabGap();
+  el.style.pointerEvents = 'none'; el.style.overflow = 'hidden'; el.style.flex = '0 0 auto'; el.style.minWidth = '0';
+  setTimeout(() => el.remove(), 1000);   // filet de sécurité (fenêtre masquée = pas d'images)
+  runAnim(180, (p) => {
+    const q = 1 - p;
+    el.style.width = (m.w * q) + 'px';
+    el.style.paddingLeft = (m.pl * q) + 'px'; el.style.paddingRight = (m.pr * q) + 'px';
+    el.style.marginRight = (-gap * p) + 'px';
+    el.style.opacity = String(q);
+  }, { owner: el }).then(() => el.remove());
+}
+
+// Un onglet qui a changé de place glisse depuis son ancienne position
+function flipTab(el, delta) {
+  runAnim(150, (p) => { el.style.transform = p < 1 ? 'translateX(' + (delta * (1 - p)) + 'px)' : ''; }, { owner: el });
+}
+
+// Apparition des pages (onglet affiché, Menu Pure, panneaux) : fondu léger
+function fadeIn(el) {
+  if (ANIM_FPS === 0) return;
+  const move = el.tagName !== 'WEBVIEW';
+  runAnim(150, (p) => {
+    el.style.opacity = p < 1 ? String(p) : '';
+    el.style.transform = move && p < 1 ? 'translateY(' + (6 * (1 - p)) + 'px)' : '';
+  }, { owner: el });
+}
+new MutationObserver((records) => {
+  const first = new Map();   // état de la classe au début du lot de modifications
+  records.forEach(r => { if (!first.has(r.target)) first.set(r.target, r.oldValue || ''); });
+  first.forEach((oldClass, el) => {
+    if (!(el.tagName === 'WEBVIEW' || el.classList.contains('panel'))) return;
+    const nowActive = el.classList.contains('active'), wasActive = /(^|\s)active(\s|$)/.test(oldClass);
+    if (nowActive && !wasActive) fadeIn(el);
+    else if (!nowActive && wasActive) { el._animToken = (el._animToken || 0) + 1; el.style.opacity = ''; el.style.transform = ''; }
+  });
+}).observe(content, { subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+
+/* ---------- Glisser-déposer des onglets : réordonner, ou détacher dans une nouvelle fenêtre ---------- */
+const DRAG_START_PX = 5, DETACH_ENTER_PX = 40, DETACH_LEAVE_PX = 20;
+let drag = null;
+
+function onTabPointerDown(e, tab) {
+  if (e.button !== 0 || drag) return;
+  if (e.target.closest && e.target.closest('.tab-close')) return;
+  drag = { tab, startX: e.clientX, startY: e.clientY, px: e.clientX, py: e.clientY, active: false };
+  window.addEventListener('pointermove', onDragMove);
+  window.addEventListener('pointerup', onDragEnd);
+  window.addEventListener('pointercancel', cancelDrag);
+  window.addEventListener('blur', cancelDrag);
+  window.addEventListener('keydown', onDragKey, true);
+  try { tab.tabEl.setPointerCapture(e.pointerId); } catch (err) { /* ignoré */ }
+}
+function removeDragListeners() {
+  window.removeEventListener('pointermove', onDragMove);
+  window.removeEventListener('pointerup', onDragEnd);
+  window.removeEventListener('pointercancel', cancelDrag);
+  window.removeEventListener('blur', cancelDrag);
+  window.removeEventListener('keydown', onDragKey, true);
+}
+function onDragKey(e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelDrag(); } }
+
+function onDragMove(e) {
+  const d = drag;
+  if (!d) return;
+  d.px = e.clientX; d.py = e.clientY;
+  if (!d.active) {
+    if (Math.hypot(d.px - d.startX, d.py - d.startY) < DRAG_START_PX) return;
+    beginDrag(d);
+  }
+}
+
+function beginDrag(d) {
+  if (activeId !== d.tab.id) activateTab(d.tab.id);
+  d.gap = tabGap();
+  d.strip = tabstrip.getBoundingClientRect();
+  d.items = tabs.map(t => { const r = t.tabEl.getBoundingClientRect(); return { tab: t, el: t.tabEl, left: r.left, width: r.width, cur: 0 }; });
+  d.from = tabs.indexOf(d.tab); d.to = d.from; d.me = d.items[d.from];
+  const r = d.me.el.getBoundingClientRect();
+  d.top = r.top; d.height = r.height; d.grabX = d.startX - r.left;
+  d.detached = false;
+  d.canDetach = tabs.length > 1 && !!d.tab.url;
+  d.last = 0;
+  const ghost = d.me.el.cloneNode(true);
+  ghost.removeAttribute('style');
+  ghost.className = 'tab tab-ghost' + (d.me.el.classList.contains('active') ? ' active' : '');
+  ghost.style.width = d.me.width + 'px'; ghost.style.height = d.height + 'px';
+  document.body.appendChild(ghost);
+  d.ghost = ghost; d.gx = r.left; d.gy = r.top;
+  d.me.el.classList.add('drag-origin');
+  document.body.classList.add('tab-dragging');
+  d.active = true;
+  requestAnimationFrame(dragFrame);
+}
+
+function dragFrame() {
+  const d = drag;
+  if (!d || !d.active) return;
+  if (tabs.length !== d.items.length || !d.items.every((it, i) => tabs[i] === it.tab)) { cancelDrag(); return; }   // la liste d'onglets a changé pendant le geste
+  const now = performance.now();
+  if (ANIM_FPS !== 0 && now - d.last < frameGap()) { requestAnimationFrame(dragFrame); return; }
+  const dt = d.last ? now - d.last : 16;
+  d.last = now;
+  updateDrag(d, dt);
+  requestAnimationFrame(dragFrame);
+}
+
+function updateDrag(d, dt) {
+  const me = d.me, n = d.items.length, s = d.strip;
+  // Détachement : on tire l'onglet hors de la barre (hystérésis pour éviter les clignotements)
+  const out = Math.max(s.top - d.py, d.py - s.bottom, -d.px, d.px - window.innerWidth);
+  if (d.canDetach) {
+    if (!d.detached && out > DETACH_ENTER_PX) { d.detached = true; d.ghost.classList.add('detaching'); }
+    else if (d.detached && out < DETACH_LEAVE_PX) { d.detached = false; d.ghost.classList.remove('detaching'); }
+  }
+  let x, y;
+  if (d.detached) { x = d.px - d.grabX; y = d.py - d.height / 2; }
+  else {
+    const minX = d.items[0].left, maxX = Math.max(minX, d.items[n - 1].left + d.items[n - 1].width - me.width);
+    x = Math.min(Math.max(d.px - d.grabX, minX), maxX); y = d.top;
+  }
+  d.gx = x; d.gy = y;
+  d.ghost.style.transform = 'translate(' + x + 'px,' + y + 'px)' + (d.detached ? ' scale(1.03)' : '');
+
+  // Position visée : nombre d'autres onglets dont le milieu est à gauche du centre de l'onglet tiré
+  if (d.detached) d.to = -1;
+  else {
+    const cx = x + me.width / 2;
+    let idx = 0;
+    d.items.forEach((it, i) => { if (i !== d.from && it.left + it.width / 2 < cx) idx++; });
+    d.to = idx;
+  }
+  const shift = me.width + d.gap;
+  d.items.forEach((it, i) => {
+    if (i === d.from) return;
+    let target = 0;
+    if (d.detached) target = i > d.from ? -shift : 0;
+    else if (d.to > d.from && i > d.from && i <= d.to) target = -shift;
+    else if (d.to < d.from && i >= d.to && i < d.from) target = shift;
+    if (ANIM_FPS === 0) it.cur = target;
+    else {
+      it.cur += (target - it.cur) * (1 - Math.exp(-dt / 55));
+      if (Math.abs(target - it.cur) < 0.4) it.cur = target;
+    }
+    it.el.style.transform = it.cur ? 'translateX(' + it.cur + 'px)' : '';
+  });
+}
+
+function endDragVisuals(d) {
+  document.body.classList.remove('tab-dragging');
+  d.me.el._noClick = true;                       // le relâchement ne doit pas compter comme un clic sur l'onglet
+  setTimeout(() => { d.me.el._noClick = false; }, 30);
+}
+
+function cancelDrag() {
+  const d = drag;
+  if (!d) return;
+  removeDragListeners();
+  drag = null;
+  if (!d.active) return;
+  endDragVisuals(d);
+  d.ghost.remove();
+  d.me.el.classList.remove('drag-origin');
+  d.items.forEach(it => { it.el.style.transform = ''; });
+}
+
+function onDragEnd(e) {
+  const d = drag;
+  if (!d) return;
+  removeDragListeners();
+  drag = null;
+  if (!d.active) return;                        // simple clic : le gestionnaire "click" s'en charge
+  d.px = e.clientX; d.py = e.clientY;
+  if (tabs.length !== d.items.length || !d.items.every((it, i) => tabs[i] === it.tab)) { drag = d; cancelDrag(); return; }
+  updateDrag(d, 16);
+  endDragVisuals(d);
+  if (d.detached && d.canDetach) finishDetach(d); else finishReorder(d);
+}
+
+function finishReorder(d) {
+  const me = d.me, from = d.from, to = d.to;
+  const before = d.items.map(it => it.el.getBoundingClientRect().left);   // positions réelles, transformations comprises
+  if (to >= 0 && to !== from) {
+    tabs.splice(from, 1); tabs.splice(to, 0, me.tab);
+    const next = tabs[to + 1];
+    tabstrip.insertBefore(me.el, next ? next.tabEl : newTabBtn);
+    saveSession();
+  }
+  d.items.forEach(it => { it.el.style.transform = ''; });
+  if (ANIM_FPS !== 0) d.items.forEach((it, i) => {
+    if (it === me) return;
+    const delta = before[i] - it.el.getBoundingClientRect().left;
+    if (Math.abs(delta) > 0.5) flipTab(it.el, delta);
+  });
+  // L'onglet tiré glisse jusqu'à son emplacement définitif
+  const slot = me.el.getBoundingClientRect(), x0 = d.gx, y0 = d.gy, g = d.ghost;
+  const done = () => { g.remove(); me.el.classList.remove('drag-origin'); };
+  setTimeout(done, 600);
+  runAnim(130, (p) => { g.style.transform = 'translate(' + (x0 + (slot.left - x0) * p) + 'px,' + (y0 + (slot.top - y0) * p) + 'px)'; }).then(done);
+}
+
+function finishDetach(d) {
+  const tab = d.tab, me = d.me;
+  d.ghost.remove();
+  const others = d.items.filter(it => it !== me);
+  const settle = (removed) => {
+    const before = others.map(it => it.el.getBoundingClientRect().left);
+    if (removed) closeTab(tab.id, { detached: true, instant: true });
+    else me.el.classList.remove('drag-origin');
+    others.forEach(it => { it.el.style.transform = ''; });
+    if (ANIM_FPS !== 0) others.forEach((it, i) => {
+      const delta = before[i] - it.el.getBoundingClientRect().left;
+      if (Math.abs(delta) > 0.5) flipTab(it.el, delta);
+    });
+  };
+  ipcRenderer.invoke('window:detach-tab', { url: tab.url, title: tab.title, favicon: tab.favicon }).then(ok => settle(!!ok), () => settle(false));
+}
+
+// Menu contextuel de l'onglet : même résultat que de le tirer hors de la barre
+function detachTabById(id) {
+  const tb = tabs.find(x => x.id === id);
+  if (!tb || !tb.url || tabs.length < 2) return;
+  ipcRenderer.invoke('window:detach-tab', { url: tb.url, title: tb.title, favicon: tb.favicon }).then(ok => { if (ok) closeTab(id, { detached: true }); });
+}
+
+/* ---------- Onglets (création paresseuse) ---------- */
+function createTab(url, opts) {
+  if (!url) { openMenu(); return null; }      // plus d'onglet vide : on ouvre le Menu Pure
+  opts = opts || {};
+  const id = nextId++;
+  const tabEl = document.createElement('div');
+  tabEl.className = 'tab';
+  tabEl.innerHTML = '<img class="tab-favicon"><span class="tab-title"></span><span class="tab-close">×</span>';
+  tabEl.querySelector('.tab-title').textContent = opts.title || hostOf(url) || 'Chargement…';
+  if (opts.favicon) setFavicon(tabEl.querySelector('.tab-favicon'), opts.favicon);
+  tabEl.addEventListener('click', (e) => {
+    if (tabEl._noClick) return;
+    if (e.target.classList.contains('tab-close')) closeTab(id); else activateTab(id);
+  });
+  tabEl.addEventListener('pointerdown', (e) => { const tb = tabs.find(x => x.id === id); if (tb) onTabPointerDown(e, tb); });
+  tabstrip.insertBefore(tabEl, newTabBtn);
+  tabEl.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const tb = tabs.find(x => x.id === id);
+    if (!tb) return;
+    showContextMenu(e.clientX, e.clientY, [
+      { label: 'Ouvrir le Menu Pure', action: () => openMenu() },
+      { label: 'Actualiser', disabled: !tb.webview, action: () => { if (tb.webview) tb.webview.reload(); } },
+      { label: "Dupliquer l'onglet", disabled: !tb.url, action: () => createTab(tb.url) },
+      { label: 'Détacher dans une nouvelle fenêtre', disabled: !tb.url || tabs.length < 2, action: () => detachTabById(id) },
+      { separator: true },
+      { label: "Fermer l'onglet", action: () => closeTab(id) },
+      { label: 'Fermer les autres onglets', disabled: tabs.length < 2, danger: true, action: () => tabs.filter(x => x.id !== id).forEach(x => closeTab(x.id)) }
+    ]);
+  });
+
+  const tab = { id, tabEl, webview: null, title: opts.title || hostOf(url) || 'Chargement…', url: url, favicon: opts.favicon || null, blockedOnPage: 0, suspendTimer: null, pw: { has: false, origin: '', pending: null, prompt: null, fillDismissed: false } };
+  tabs.push(tab);
+  if (url && !opts.lazy) attachWebview(tab, url);
+  if (!opts.skipActivate) activateTab(id);
+  if (!opts.lazy && !opts.noAnim) animateTabIn(tabEl);
+  return tab;
+}
+
+function attachWebview(tab, url) {
+  const webview = document.createElement('webview');
+  webview.setAttribute('partition', PARTITION);
+  webview.setAttribute('allowpopups', 'false');
+  webview.setAttribute('preload', PRELOAD_URL);
+  webview.src = url;
+  content.appendChild(webview);
+  tab.webview = webview;
+
+  webview.addEventListener('did-navigate', (e) => {
+    tab.url = e.url;
+    tab.pw.has = false; tab.pw.prompt = null; tab.pw.fillDismissed = false;
+    if (tab.id === activeId) refreshCredbar(tab);
+    recordVisit(tab.url, tab.title, tab.favicon);
+    if (tab.id === activeId) updateToolbar(tab);
+    saveSession();
+  });
+  webview.addEventListener('did-navigate-in-page', (e) => {
+    tab.url = e.url;
+    if (tab.id === activeId) updateToolbar(tab);
+    saveSession();
+  });
+  webview.addEventListener('page-title-updated', (e) => {
+    tab.title = e.title || tab.url || 'Sans titre';
+    tab.tabEl.querySelector('.tab-title').textContent = tab.title;
+    recordVisit(tab.url, tab.title, tab.favicon);
+    saveSession();
+  });
+  webview.addEventListener('page-favicon-updated', (e) => {
+    const fav = e.favicons && e.favicons[0] ? e.favicons[0] : null;
+    tab.favicon = fav;
+    setFavicon(tab.tabEl.querySelector('.tab-favicon'), fav);
+    recordVisit(tab.url, tab.title, fav);
+    saveSession();
+  });
+  webview.addEventListener('ipc-message', (ev) => {
+    if (ev.channel === 'ui:hide-menus') { hideContextMenu(); closeSuggestions(); return; }
+    onWebviewMessage(tab, ev.channel, ev.args && ev.args[0]);
+  });
+  webview.addEventListener('found-in-page', (ev) => {
+    if (tab.id !== activeId || !ev.result) return;
+    findCount.textContent = ev.result.matches ? ev.result.activeMatchOrdinal + ' / ' + ev.result.matches : 'Aucun résultat';
+  });
+  webview.addEventListener('new-window', (ev) => createTab(ev.url));
+  webview.addEventListener('focus', hideContextMenu);
+}
+
+async function recordVisit(url, title, favicon) {
+  if (!url || IS_PRIVATE) return;
+  historyCache = await ipcRenderer.invoke('store:record-visit', { url, title, favicon });
+  if (favicon) {
+    const h = hostOf(url);
+    const needs = bookmarksCache.some(b => !b.favicon && hostOf(b.url) === h) || shortcutsCache.some(s => !s.favicon && hostOf(s.url) === h);
+    if (needs) {
+      await refreshCaches();
+      renderQuickbar();
+      if (homeEl.classList.contains('active')) renderTiles();
+    }
+  }
+}
+
+let saveSessionTimer = null;
+function saveSession() {
+  if (IS_PRIVATE || IS_DETACHED) return;
+  clearTimeout(saveSessionTimer);
+  saveSessionTimer = setTimeout(() => {
+    const list = tabs.filter(t => t.url).map(t => ({ url: t.url, title: t.title, favicon: t.favicon || null }));
+    ipcRenderer.invoke('store:save-session', list);
+  }, 400);
+}
+
+function navigateActiveTab(url) {
+  const tab = tabs.find(t => t.id === activeId);
+  if (menuOpen || !tab) { createTab(url); return; }   // depuis le Menu Pure : nouvel onglet
+  closePanels();
+  if (!tab.webview) {
+    attachWebview(tab, url);
+    tab.webview.classList.add('active');
+  } else {
+    tab.webview.loadURL(url);
+  }
+  addressBar.value = url;
+  closeSuggestions();
+}
+
+const TAB_SUSPEND_MS = 10 * 60 * 1000; // onglet inactif 10 min -> webview libérée (mémoire)
+
+function scheduleSuspend(tab) {
+  clearTimeout(tab.suspendTimer);
+  if (!tab.webview) return;
+  tab.suspendTimer = setTimeout(() => {
+    if (tab.id === activeId || !tab.webview) return;
+    tab.webview.remove();
+    tab.webview = null; // activateTab() le recréera paresseusement si besoin
+  }, TAB_SUSPEND_MS);
+}
+
+function syncBrand() { $('brand-logo').classList.toggle('active', homeEl.classList.contains('active')); }
+
+function activateTab(id) {
+  if (dt.open && dt.tabId !== id) closeDevTools();
+  if (findBar.classList.contains('open') && id !== activeId) closeFind();
+  const prev = tabs.find(t => t.id === activeId);
+  if (prev && prev.id !== id) scheduleSuspend(prev);
+  const tab = tabs.find(t => t.id === id);
+  if (!tab) return;
+  menuOpen = false;
+  activeId = id;
+  lastTabId = id;
+  clearTimeout(tab.suspendTimer);
+  if (!tab.webview) attachWebview(tab, tab.url);
+  tabs.forEach(t => {
+    const isActive = t.id === id;
+    t.tabEl.classList.toggle('active', isActive);
+    if (t.webview) t.webview.classList.toggle('active', isActive);
+  });
+  closePanels();
+  updateToolbar(tab);
+  refreshCredbar(tab);
+}
+
+// Menu Pure : vue à part (pas un onglet). Le logo est mis en avant tant qu'on y est.
+function openMenu(opts) {
+  opts = opts || {};
+  if (dt.open) closeDevTools();
+  if (findBar.classList.contains('open')) closeFind();
+  const prev = tabs.find(t => t.id === activeId);
+  if (prev) { lastTabId = prev.id; scheduleSuspend(prev); }
+  activeId = null;
+  menuOpen = true;
+  tabs.forEach(t => { t.tabEl.classList.remove('active'); if (t.webview) t.webview.classList.remove('active'); });
+  closePanels();
+  homeEl.classList.add('active');
+  syncBrand();
+  renderTiles();
+  addressBar.value = '';
+  btnBack.disabled = true; btnForward.disabled = true;
+  starBtn.disabled = true; starBtn.textContent = '☆'; starBtn.classList.remove('active');
+  hideCredbar();
+  closeSuggestions();
+  if (opts.focus !== false) hsInput.focus();
+}
+// Clic sur le logo : ouvre le Menu Pure ; un second clic ramène à la page précédente
+$('brand-logo').addEventListener('click', () => {
+  if (menuOpen && homeEl.classList.contains('active') && tabs.some(t => t.id === lastTabId)) activateTab(lastTabId);
+  else openMenu();
+});
+
+function closeTab(id, opts) {
+  opts = opts || {};
+  const idx = tabs.findIndex(t => t.id === id);
+  if (idx === -1) return;
+  const tab = tabs[idx];
+  if (dt.open && dt.tabId === id) closeDevTools();
+  if (!IS_PRIVATE && !opts.detached && tab.url) { closedTabs.push({ url: tab.url, title: tab.title, favicon: tab.favicon }); if (closedTabs.length > 20) closedTabs.shift(); }
+  clearTimeout(tab.suspendTimer);
+  if (opts.instant) tab.tabEl.remove(); else animateTabOut(tab.tabEl);
+  if (tab.webview) tab.webview.remove();
+  tabs.splice(idx, 1);
+  if (lastTabId === id) lastTabId = null;
+  saveSession();
+  if (tabs.length === 0) { openMenu(); return; }
+  if (activeId === id) activateTab((tabs[idx] || tabs[idx - 1]).id);
+}
+
+function updateToolbar(tab) {
+  addressBar.value = tab.url || '';
+  if (!tab.webview) { btnBack.disabled = true; btnForward.disabled = true; }
+  else {
+    try { btnBack.disabled = !tab.webview.canGoBack(); btnForward.disabled = !tab.webview.canGoForward(); }
+    catch (e) { btnBack.disabled = true; btnForward.disabled = true; }
+  }
+  starBtn.disabled = !tab.url;
+  const on = bookmarkUrls.has(tab.url);
+  starBtn.textContent = on ? '★' : '☆';
+  starBtn.classList.toggle('active', on);
+}
+
+newTabBtn.addEventListener('click', () => openMenu());
+addressForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (currentSuggestions.length && selectedSuggestion >= 0) { navigateActiveTab(currentSuggestions[selectedSuggestion].url); return; }
+  const resolved = resolveInput(addressBar.value);
+  if (resolved) navigateActiveTab(resolved);
+});
+btnBack.addEventListener('click', () => { const t = tabs.find(x => x.id === activeId); if (t && t.webview && t.webview.canGoBack()) t.webview.goBack(); });
+btnForward.addEventListener('click', () => { const t = tabs.find(x => x.id === activeId); if (t && t.webview && t.webview.canGoForward()) t.webview.goForward(); });
+btnReload.addEventListener('click', () => { const t = tabs.find(x => x.id === activeId); if (t && t.webview) t.webview.reload(); });
+
+/* ---------- Favoris (étoile + barre compacte) ---------- */
+async function addBookmarkFromTab(tab) {
+  bookmarksCache = await ipcRenderer.invoke('store:add-bookmark', { url: tab.url, title: tab.title, favicon: tab.favicon });
+  bookmarkUrls = new Set(bookmarksCache.map(b => b.url));
+  renderQuickbar(); updateToolbar(tab);
+}
+async function removeBookmark(url) {
+  bookmarksCache = await ipcRenderer.invoke('store:remove-bookmark', url);
+  bookmarkUrls = new Set(bookmarksCache.map(b => b.url));
+  renderQuickbar();
+  const tab = tabs.find(t => t.id === activeId);
+  if (tab) updateToolbar(tab);
+}
+starBtn.addEventListener('click', () => {
+  const tab = tabs.find(t => t.id === activeId);
+  if (!tab || !tab.url) return;
+  if (bookmarkUrls.has(tab.url)) removeBookmark(tab.url); else addBookmarkFromTab(tab);
+});
+
+function renderQuickbar() {
+  quickbar.innerHTML = '';
+  if (bookmarksCache.length === 0) { quickbar.classList.add('empty'); return; }
+  quickbar.classList.remove('empty');
+
+  const apps = document.createElement('div');
+  apps.className = 'qb-apps';
+  apps.title = 'Menu Pure';
+  apps.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/></svg>';
+  apps.addEventListener('click', () => openMenu());
+  quickbar.appendChild(apps);
+  const sep = document.createElement('div'); sep.className = 'qb-sep'; quickbar.appendChild(sep);
+
+  bookmarksCache.forEach(bm => {
+    const item = document.createElement('div');
+    item.className = 'qb-item';
+    item.title = bm.url;
+    item.appendChild(makeIcon(bm.favicon, bm.title, 16));
+    const label = document.createElement('span');
+    label.textContent = bm.title || bm.url;
+    item.appendChild(label);
+    item.addEventListener('click', () => navigateActiveTab(bm.url));
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showContextMenu(e.clientX, e.clientY, [
+        { label: 'Ouvrir dans un nouvel onglet', action: () => createTab(bm.url) },
+        { label: 'Supprimer le favori', danger: true, action: () => removeBookmark(bm.url) }
+      ]);
+    });
+    quickbar.appendChild(item);
+  });
+}
+
+/* ---------- Menu Pure : tuiles de raccourcis ---------- */
+function computeTiles() {
+  const tiles = shortcutsCache.map(s => ({ url: s.url, title: s.title, favicon: s.favicon, kind: 'shortcut' }));
+  const used = new Set(tiles.map(t => hostOf(t.url)));
+  const byHost = new Map();
+  historyCache.forEach(h => {
+    const host = hostOf(h.url);
+    if (!host || host === 'duckduckgo.com' || hiddenTop.includes(host) || used.has(host)) return;
+    const cur = byHost.get(host) || { score: 0, best: h };
+    cur.score += (h.visits || 1);
+    if ((h.visits || 1) > (cur.best.visits || 1)) cur.best = h;
+    byHost.set(host, cur);
+  });
+  [...byHost.values()].sort((a, b) => b.score - a.score)
+    .slice(0, Math.max(0, 9 - tiles.length))
+    .forEach(v => tiles.push({ url: v.best.url, title: v.best.title, favicon: v.best.favicon, kind: 'top', host: hostOf(v.best.url) }));
+  return tiles;
+}
+
+function renderTiles() {
+  tilesEl.innerHTML = '';
+  computeTiles().forEach(t => {
+    const el = document.createElement('div');
+    el.className = 'tile';
+    const box = document.createElement('div'); box.className = 'tile-icon';
+    box.appendChild(makeIcon(t.favicon, t.title, 30));
+    const label = document.createElement('div'); label.className = 'tile-label';
+    label.textContent = t.title || hostOf(t.url);
+    label.title = t.title || t.url;
+    el.appendChild(box); el.appendChild(label);
+    el.addEventListener('click', () => navigateActiveTab(t.url));
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showContextMenu(e.clientX, e.clientY, [
+        { label: 'Ouvrir dans un nouvel onglet', action: () => createTab(t.url) },
+        { label: 'Supprimer le raccourci', danger: true, action: async () => {
+            const r = t.kind === 'shortcut' ? await ipcRenderer.invoke('store:remove-shortcut', t.url) : await ipcRenderer.invoke('store:hide-top', t.host);
+            shortcutsCache = r.shortcuts; hiddenTop = r.hidden; renderTiles();
+        } }
+      ]);
+    });
+    tilesEl.appendChild(el);
+  });
+
+  const add = document.createElement('div');
+  add.className = 'tile tile-add';
+  add.innerHTML = '<div class="tile-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div><div class="tile-label">Ajouter un raccourci</div>';
+  add.addEventListener('click', openShortcutModal);
+  tilesEl.appendChild(add);
+  renderHomeExtras();
+}
+
+function openShortcutModal() {
+  $('sc-name').value = ''; $('sc-url').value = ''; $('sc-error').textContent = '';
+  modalBack.classList.add('open');
+  $('sc-name').focus();
+}
+function closeShortcutModal() { modalBack.classList.remove('open'); }
+$('sc-cancel').addEventListener('click', closeShortcutModal);
+modalBack.addEventListener('mousedown', (e) => { if (e.target === modalBack) closeShortcutModal(); });
+$('shortcut-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const raw = $('sc-url').value.trim();
+  if (!raw || !looksLikeUrl(raw)) { $('sc-error').textContent = 'Saisis une adresse valide (ex. exemple.com).'; return; }
+  const url = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
+  const title = $('sc-name').value.trim() || hostOf(url);
+  const r = await ipcRenderer.invoke('store:add-shortcut', { url, title });
+  shortcutsCache = r.shortcuts; hiddenTop = r.hidden;
+  closeShortcutModal();
+  renderTiles();
+});
+
+/* ---------- Panneaux ---------- */
+function closePanels() {
+  homeEl.classList.remove('active');
+  syncBrand();
+  historyEl.classList.remove('active');
+  extensionsEl.classList.remove('active');
+  vaultEl.classList.remove('active');
+  downloadsEl.classList.remove('active');
+  settingsEl.classList.remove('active');
+  btnHistory.classList.remove('toggle-on');
+  btnExtensions.classList.remove('toggle-on');
+  btnVault.classList.remove('toggle-on');
+  btnDownloads.classList.remove('toggle-on');
+  btnSettings.classList.remove('toggle-on');
+  closePopover();
+}
+function restoreTabView() {
+  closePanels();
+  if (menuOpen) { homeEl.classList.add('active'); syncBrand(); renderTiles(); }
+}
+
+btnHistory.addEventListener('click', async () => {
+  const wasOpen = historyEl.classList.contains('active');
+  closePanels();
+  if (wasOpen) { restoreTabView(); return; }
+  historyEl.classList.add('active');
+  btnHistory.classList.add('toggle-on');
+  historyCache = await ipcRenderer.invoke('store:get-history');
+  renderHistory('');
+});
+$('history-close').addEventListener('click', restoreTabView);
+
+function fmtDate(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+function renderHistory(filter) {
+  const q = (filter || '').trim().toLowerCase();
+  const rows = historyCache.filter(h => !q || h.title.toLowerCase().includes(q) || h.url.toLowerCase().includes(q));
+  histList.innerHTML = '';
+  histEmpty.style.display = rows.length ? 'none' : 'block';
+  rows.forEach(h => {
+    const row = document.createElement('div');
+    row.className = 'hist-row';
+    row.innerHTML = '<img class="hist-favicon"><div class="hist-title"></div><div class="hist-date"></div>';
+    row.querySelector('.hist-title').textContent = h.title || h.url;
+    row.querySelector('.hist-date').textContent = fmtDate(h.lastVisit);
+    setFavicon(row.querySelector('.hist-favicon'), h.favicon);
+    row.addEventListener('click', () => navigateActiveTab(h.url));
+    histList.appendChild(row);
+  });
+}
+histFilter.addEventListener('input', () => renderHistory(histFilter.value));
+$('clear-history-btn').addEventListener('click', async () => {
+  historyCache = await ipcRenderer.invoke('store:clear-history');
+  renderHistory('');
+});
+
+/* ---------- Extensions : recherche + installation sur commande ---------- */
+const EXT_CATALOG = [
+  { id: 'eimadpbcbfnmbkopoojfekhnkhdbieeh', name: 'Dark Reader', desc: 'Mode sombre sur tous les sites', tags: 'dark mode sombre nuit theme' },
+  { id: 'nngceckbapebfimnlniiiahkandclblb', name: 'Bitwarden', desc: 'Gestionnaire de mots de passe', tags: 'password mot de passe coffre' },
+  { id: 'mnjggcdmjocbbbhaepdhchncahnbgone', name: 'SponsorBlock', desc: 'Passe automatiquement les sponsors dans les vidéos YouTube', tags: 'youtube sponsor video' },
+  { id: 'gebbhagfogifgggkldgodflihgfeigcp', name: 'Return YouTube Dislike', desc: 'Rétablit le compteur de dislikes sur YouTube', tags: 'youtube dislike' },
+  { id: 'ponfpcnoihfmfllpaingbgckeeldkhle', name: 'Enhancer for YouTube', desc: 'Contrôles avancés du lecteur YouTube', tags: 'youtube lecteur player' },
+  { id: 'ddkjiahejlhfcafbddmgiahcphecmpfh', name: 'uBlock Origin Lite', desc: 'Bloqueur de contenu léger (Manifest V3)', tags: 'ublock adblock pub publicite bloqueur' },
+  { id: 'cjpalhdlnbpafiamejdnhcphjbkeiagm', name: 'uBlock Origin', desc: 'Bloqueur de contenu (ancien format, peut être refusé)', tags: 'ublock adblock pub publicite bloqueur' },
+  { id: 'pkehgijcmpdhfbdbbnkijodmdjhbjlgp', name: 'Privacy Badger', desc: 'Bloque les traqueurs invisibles (EFF)', tags: 'privacy confidentialite traqueur tracker eff' },
+  { id: 'ldpochfccmkkmhdbclfhpagapcfdljkj', name: 'Decentraleyes', desc: 'Protège contre le suivi via les CDN', tags: 'privacy confidentialite cdn' },
+  { id: 'lckanjgmijmafbedllaakclkaicjfmnk', name: 'ClearURLs', desc: 'Supprime les paramètres de suivi des liens', tags: 'privacy liens url tracking' },
+  { id: 'edibdbjcniadpccecjdfdjjppcpchdlm', name: "I still don't care about cookies", desc: 'Masque les bannières de cookies', tags: 'cookies bannieres rgpd consentement' },
+  { id: 'clngdbkpkpeebahjckkjfobafhncgmne', name: 'Stylus', desc: 'Styles CSS personnalisés par site', tags: 'css style theme' },
+  { id: 'dhdgffkkebhmkfjojejmpbldmpobfkfo', name: 'Tampermonkey', desc: 'Gestionnaire de userscripts', tags: 'userscript script greasemonkey' },
+  { id: 'dbepggeogbaibhgnhhndojpepiihcmeb', name: 'Vimium', desc: 'Navigation au clavier', tags: 'clavier keyboard vim' },
+  { id: 'fmkadmapgofadopljbjfkapdkoienihi', name: 'React Developer Tools', desc: 'Outils de développement React', tags: 'react dev developpeur devtools' },
+  { id: 'aapbdbdomjkkjkaonfhkkikfgjllcleb', name: 'Google Traduction', desc: 'Traduction de pages et de sélections', tags: 'traduction translate langue' }
+];
+let installedStoreIds = new Set();
+
+function setExtStatus(msg, isError) {
+  extStatus.textContent = msg || '';
+  extStatus.classList.toggle('error', !!isError);
+}
+
+function activeStoreId() {
+  const t = tabs.find(x => x.id === activeId);
+  if (!t || !t.url) return null;
+  const m = t.url.match(/(?:chromewebstore\.google\.com|chrome\.google\.com\/webstore)\/detail\/(?:[^/]+\/)?([a-p]{32})/);
+  return m ? m[1] : null;
+}
+
+function makeExtRow(item, opts) {
+  const row = document.createElement('div');
+  row.className = 'ext-row' + (opts && opts.highlight ? ' highlight' : '');
+  const info = document.createElement('div'); info.className = 'ext-info';
+  const name = document.createElement('div'); name.className = 'ext-name'; name.textContent = item.name;
+  const desc = document.createElement('div'); desc.className = 'ext-desc'; desc.textContent = item.desc;
+  info.appendChild(name); info.appendChild(desc);
+  row.appendChild(info);
+  return row;
+}
+
+function renderExtResults() {
+  const q = extSearchInput.value.trim();
+  const ql = q.toLowerCase();
+  extResults.innerHTML = '';
+  const rows = [];
+
+  const pageId = activeStoreId();
+  if (pageId) rows.push({ id: pageId, name: "Extension de la page ouverte", desc: 'Installer directement depuis le Chrome Web Store', highlight: true });
+
+  const pasted = q.match(/[a-p]{32}/);
+  if (pasted) {
+    if (pasted[0] !== pageId) rows.push({ id: pasted[0], name: 'Extension ' + pasted[0].slice(0, 8) + '…', desc: 'Identifiant détecté dans ta saisie' });
+  } else {
+    EXT_CATALOG.filter(e => !ql || (e.name + ' ' + e.desc + ' ' + e.tags).toLowerCase().includes(ql)).forEach(e => rows.push(e));
+  }
+
+  rows.forEach(item => {
+    const row = makeExtRow(item, item);
+    const btn = document.createElement('button');
+    btn.className = 'ext-btn';
+    if (installedStoreIds.has(item.id)) { btn.textContent = 'Installée ✓'; btn.disabled = true; }
+    else {
+      btn.textContent = 'Installer';
+      btn.addEventListener('click', () => installExtension(item.id, btn));
+    }
+    row.appendChild(btn);
+    extResults.appendChild(row);
+  });
+
+  if (q && !pasted) {
+    const row = makeExtRow({ name: 'Chercher « ' + q + ' » sur le Chrome Web Store', desc: 'Ouvre le Store dans un onglet : sur la page d\'une extension, reviens ici pour l\'installer en un clic' }, {});
+    const btn = document.createElement('button');
+    btn.className = 'ext-btn ghost';
+    btn.textContent = 'Ouvrir';
+    btn.addEventListener('click', () => navigateActiveTab('https://chromewebstore.google.com/search/' + encodeURIComponent(q)));
+    row.appendChild(btn);
+    extResults.appendChild(row);
+  }
+}
+extSearchInput.addEventListener('input', renderExtResults);
+
+async function installExtension(storeId, btn) {
+  btn.disabled = true; btn.textContent = 'Installation…';
+  setExtStatus('');
+  const r = await ipcRenderer.invoke('extensions:install-store', storeId);
+  await renderExtensions();
+  if (r.success) setExtStatus('Extension installée. Actualise tes onglets ouverts pour qu\'elle s\'applique.');
+  else setExtStatus('Installation impossible : ' + (r.error || 'erreur inconnue.'), true);
+}
+
+async function renderExtensions() {
+  const list = await ipcRenderer.invoke('extensions:list');
+  installedStoreIds = new Set(list.map(e => e.storeId).filter(Boolean));
+  extList.innerHTML = '';
+  extEmpty.style.display = list.length ? 'none' : 'block';
+  list.forEach(ext => {
+    const row = document.createElement('div');
+    row.className = 'ext-row';
+    row.innerHTML = '<div class="ext-info"><div class="ext-name"></div></div><div class="ext-version"></div><button class="ext-remove" title="Retirer">×</button>';
+    row.querySelector('.ext-name').textContent = ext.name;
+    row.querySelector('.ext-version').textContent = 'v' + ext.version;
+    row.querySelector('.ext-remove').addEventListener('click', async () => {
+      await ipcRenderer.invoke('extensions:remove', ext.id);
+      setExtStatus('');
+      renderExtensions();
+    });
+    extList.appendChild(row);
+  });
+  renderExtResults();
+}
+
+btnExtensions.addEventListener('click', async () => {
+  const wasOpen = extensionsEl.classList.contains('active');
+  closePanels();
+  if (wasOpen) { restoreTabView(); return; }
+  extensionsEl.classList.add('active');
+  btnExtensions.classList.add('toggle-on');
+  setExtStatus('');
+  await renderExtensions();
+  extSearchInput.focus();
+});
+$('extensions-close').addEventListener('click', restoreTabView);
+
+$('ext-add-btn').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('extensions:add');
+  if (r.cancelled) return;
+  await renderExtensions();
+  if (r.success) setExtStatus('Extension ajoutée.');
+  else setExtStatus('Impossible de charger ce dossier : ' + (r.error || 'dossier invalide.'), true);
+});
+
+/* ---------- Compte Pure & mots de passe ---------- */
+const KEY_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2.5 2.5M14 9l2 2"/></svg>';
+
+function mk(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function vInput(type, placeholder) {
+  const i = document.createElement('input');
+  i.type = type; i.placeholder = placeholder; i.autocomplete = 'off'; i.className = 'vault-input';
+  return i;
+}
+
+btnVault.addEventListener('click', () => {
+  const wasOpen = vaultEl.classList.contains('active');
+  closePanels();
+  if (wasOpen) { restoreTabView(); return; }
+  openVaultPanel();
+});
+async function openVaultPanel() {
+  closePanels();
+  vaultEl.classList.add('active');
+  btnVault.classList.add('toggle-on');
+  await renderVault();
+}
+async function afterVaultChange() {
+  if (vaultEl.classList.contains('active')) await renderVault();
+  const t = tabs.find(x => x.id === activeId);
+  if (t) { if (t.pw.pending) await computePrompt(t); refreshCredbar(t); }
+}
+ipcRenderer.on('vault:locked', () => { afterVaultChange(); });
+
+async function renderVault() {
+  const st = await ipcRenderer.invoke('vault:status');
+  vaultWrap.innerHTML = '';
+  const head = mk('div', 'panel-head-row');
+  head.appendChild(mk('div', 'panel-heading', 'Mots de passe'));
+  const close = mk('button', 'panel-close', 'Fermer');
+  close.addEventListener('click', restoreTabView);
+  head.appendChild(close);
+  vaultWrap.appendChild(head);
+  if (!st.exists) renderVaultCreate();
+  else if (!st.unlocked) renderVaultLocked(st);
+  else await renderVaultUnlocked(st);
+}
+
+function renderVaultCreate() {
+  vaultWrap.appendChild(mk('div', 'vault-intro', "Crée ton compte Pure pour enregistrer tes mots de passe et les remplir en un clic sur les sites. Ils sont chiffrés sur cet ordinateur avec ton mot de passe principal."));
+  const form = mk('form', 'vault-form');
+  const name = vInput('text', 'Nom du compte');
+  const pw = vInput('password', 'Mot de passe principal (8 caractères minimum)');
+  const pw2 = vInput('password', 'Confirmer le mot de passe principal');
+  const btn = mk('button', 'ext-btn', 'Créer le compte'); btn.type = 'submit';
+  const err = mk('div', 'ext-status error');
+  form.append(name, pw, pw2, btn, err);
+  vaultWrap.appendChild(form);
+  vaultWrap.appendChild(mk('div', 'ext-note', "Il n'y a pas de récupération possible : si tu oublies le mot de passe principal, les mots de passe enregistrés sont perdus. Les données restent sur cet ordinateur (pas de synchronisation entre appareils)."));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (pw.value !== pw2.value) { err.textContent = 'Les deux mots de passe ne correspondent pas.'; return; }
+    const r = await ipcRenderer.invoke('vault:create', { name: name.value, password: pw.value });
+    if (r.error) { err.textContent = r.error; return; }
+    afterVaultChange();
+  });
+}
+
+function renderVaultLocked(st) {
+  vaultWrap.appendChild(mk('div', 'vault-intro', 'Compte : ' + st.name + ' — le coffre est verrouillé.'));
+  const form = mk('form', 'vault-form');
+  const pw = vInput('password', 'Mot de passe principal');
+  const btn = mk('button', 'ext-btn', 'Déverrouiller'); btn.type = 'submit';
+  const err = mk('div', 'ext-status error');
+  form.append(pw, btn, err);
+  vaultWrap.appendChild(form);
+  const forgot = mk('button', 'ext-btn ghost vault-danger', 'Mot de passe oublié ? Supprimer le compte');
+  forgot.addEventListener('click', async () => { await ipcRenderer.invoke('vault:delete-account'); afterVaultChange(); });
+  vaultWrap.appendChild(forgot);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const r = await ipcRenderer.invoke('vault:unlock', { password: pw.value });
+    if (r.error) { err.textContent = r.error; pw.value = ''; return; }
+    afterVaultChange();
+  });
+  pw.focus();
+}
+
+async function renderVaultUnlocked(st) {
+  const top = mk('div', 'vault-top');
+  top.appendChild(mk('div', 'vault-account', 'Compte : ' + st.name));
+  const actions = mk('div', 'vault-actions');
+  const addBtn = mk('button', 'ext-btn ghost', '+ Ajouter');
+  const lockBtn = mk('button', 'ext-btn ghost', 'Verrouiller');
+  actions.append(addBtn, lockBtn);
+  top.appendChild(actions);
+  vaultWrap.appendChild(top);
+  lockBtn.addEventListener('click', async () => { await ipcRenderer.invoke('vault:lock'); afterVaultChange(); });
+
+  const form = mk('form', 'vault-form vault-addform');
+  form.style.display = 'none';
+  const site = vInput('text', 'Site (ex. exemple.com)');
+  const user = vInput('text', 'Identifiant ou e-mail');
+  const pass = vInput('password', 'Mot de passe');
+  const gen = mk('button', 'ext-btn ghost', 'Générer'); gen.type = 'button';
+  const passRow = mk('div', 'vault-passrow'); passRow.append(pass, gen);
+  const save = mk('button', 'ext-btn', 'Enregistrer'); save.type = 'submit';
+  const err = mk('div', 'ext-status error');
+  form.append(site, user, passRow, save, err);
+  vaultWrap.appendChild(form);
+  addBtn.addEventListener('click', () => { form.style.display = form.style.display === 'none' ? 'flex' : 'none'; });
+  gen.addEventListener('click', async () => { pass.value = await ipcRenderer.invoke('vault:generate'); pass.type = 'text'; });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const r = await ipcRenderer.invoke('vault:save', { site: site.value, username: user.value, password: pass.value });
+    if (r.error) { err.textContent = r.error === 'locked' ? 'Le coffre est verrouillé.' : r.error; return; }
+    renderVault();
+  });
+
+  const search = vInput('text', 'Rechercher dans les mots de passe…');
+  search.classList.add('vault-search');
+  vaultWrap.appendChild(search);
+  const list = mk('div', 'vault-list');
+  vaultWrap.appendChild(list);
+
+  const res = await ipcRenderer.invoke('vault:list');
+  if (res.error) { afterVaultChange(); return; }
+
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    list.innerHTML = '';
+    const rows = res.entries.filter(en => !q || en.origin.toLowerCase().includes(q) || en.username.toLowerCase().includes(q));
+    if (!rows.length) {
+      list.appendChild(mk('div', 'empty-note', res.entries.length ? 'Aucun résultat.' : 'Aucun mot de passe enregistré. Ils apparaîtront ici quand tu te connecteras à un site.'));
+      return;
+    }
+    rows.forEach(en => {
+      const host = hostOf(en.origin) || en.origin;
+      const known = historyCache.find(x => hostOf(x.url) === host);
+      const row = mk('div', 'vault-row');
+      const info = mk('div', 'vault-info');
+      const pwLine = mk('div', 'vault-pw');
+      info.append(mk('div', 'vault-host', host), mk('div', 'vault-user', en.username || '(sans identifiant)'), pwLine);
+
+      const acts = mk('div', 'vault-actions');
+      const reveal = mk('button', 'ext-btn ghost', 'Afficher');
+      reveal.addEventListener('click', async () => {
+        if (pwLine.textContent) { pwLine.textContent = ''; reveal.textContent = 'Afficher'; return; }
+        const c = await ipcRenderer.invoke('vault:get-creds', en.id);
+        if (!c.error) { pwLine.textContent = c.password; reveal.textContent = 'Masquer'; }
+      });
+      const copy = mk('button', 'ext-btn ghost', 'Copier');
+      copy.addEventListener('click', async () => {
+        const r = await ipcRenderer.invoke('vault:copy', en.id);
+        if (r.ok) { copy.textContent = 'Copié ✓'; setTimeout(() => { copy.textContent = 'Copier'; }, 1500); }
+      });
+      const del = mk('button', 'ext-remove', '×'); del.title = 'Supprimer';
+      del.addEventListener('click', async () => { await ipcRenderer.invoke('vault:delete', en.id); renderVault(); });
+      acts.append(reveal, copy, del);
+      row.append(makeIcon(known ? known.favicon : null, host, 26), info, acts);
+      list.appendChild(row);
+    });
+  };
+  search.addEventListener('input', draw);
+  draw();
+
+  const wipe = mk('button', 'ext-btn ghost vault-danger', 'Supprimer le compte et tous les mots de passe');
+  wipe.addEventListener('click', async () => { await ipcRenderer.invoke('vault:delete-account'); afterVaultChange(); });
+  vaultWrap.appendChild(wipe);
+}
+
+/* --- Barre d'identifiants : enregistrer / remplir --- */
+function hideCredbar() { credbar.classList.remove('open'); credbar.innerHTML = ''; }
+function credBtn(label, ghost, fn) { const b = mk('button', 'cred-btn' + (ghost ? ' ghost' : ''), label); b.addEventListener('click', fn); return b; }
+function credIcon() { const s = mk('span', 'cred-icon'); s.innerHTML = KEY_SVG; return s; }
+function credClose(fn) { const b = mk('button', 'cred-x', '×'); b.addEventListener('click', fn); return b; }
+function unlockInline(onOk) {
+  const i = mk('input', 'cred-input'); i.type = 'password'; i.placeholder = 'Mot de passe principal';
+  const b = credBtn('Déverrouiller', false, async () => {
+    const r = await ipcRenderer.invoke('vault:unlock', { password: i.value });
+    if (r.error) { i.value = ''; i.placeholder = r.error; i.classList.add('bad'); return; }
+    onOk();
+  });
+  i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); b.click(); } });
+  return [i, b];
+}
+function flashCred(text) {
+  credbar.innerHTML = '';
+  credbar.append(credIcon(), mk('span', 'cred-text', text));
+  credbar.classList.add('open');
+  setTimeout(() => refreshCredbar(tabs.find(x => x.id === activeId)), 2000);
+}
+
+function originMatches(tab, origin) {
+  try { return new URL(tab.url).origin === origin; } catch (e) { return false; }
+}
+
+// Les messages viennent de pages web non fiables : on vérifie tout avant de s'en servir
+async function onWebviewMessage(tab, channel, d) {
+  if (!d || typeof d !== 'object' || typeof d.origin !== 'string' || !originMatches(tab, d.origin)) return;
+  if (channel === 'pw:submit') {
+    if (typeof d.password !== 'string' || !d.password || d.password.length > 512) return;
+    tab.pw.pending = { origin: d.origin, username: String(d.username || '').slice(0, 256), password: d.password, time: Date.now() };
+    return;
+  }
+  if (channel === 'pw:field-state') {
+    tab.pw.has = !!d.has; tab.pw.origin = d.origin;
+    const p = tab.pw.pending;
+    if (p) {
+      if (Date.now() - p.time > 30000) tab.pw.pending = null;
+      else if (d.has) { tab.pw.pending = null; tab.pw.prompt = null; }   // le formulaire est toujours là : connexion probablement échouée
+      else await computePrompt(tab);                                        // le formulaire a disparu : connexion réussie
+    }
+    if (tab.id === activeId) refreshCredbar(tab);
+  }
+}
+
+async function computePrompt(tab) {
+  const p = tab.pw.pending;
+  if (!p) { tab.pw.prompt = null; return; }
+  const r = await ipcRenderer.invoke('vault:check-save', { origin: p.origin, username: p.username, password: p.password });
+  if (r.state === 'same' || r.state === 'never') { tab.pw.pending = null; tab.pw.prompt = null; }
+  else tab.pw.prompt = { kind: r.state };
+}
+
+async function refreshCredbar(tab) {
+  if (!tab || tab.id !== activeId) { hideCredbar(); return; }
+  if (tab.pw.prompt && tab.pw.pending) { renderSavePrompt(tab, tab.pw.prompt); return; }
+  if (tab.pw.has && !tab.pw.fillDismissed) { await renderFillBar(tab); return; }
+  hideCredbar();
+}
+
+function renderSavePrompt(tab, pr) {
+  const p = tab.pw.pending;
+  const host = hostOf(p.origin) || p.origin;
+  const who = p.username || 'ce compte';
+  const done = () => { tab.pw.pending = null; tab.pw.prompt = null; hideCredbar(); };
+  credbar.innerHTML = '';
+  credbar.appendChild(credIcon());
+  if (pr.kind === 'new' || pr.kind === 'update') {
+    const update = pr.kind === 'update';
+    credbar.appendChild(mk('span', 'cred-text', update ? 'Mettre à jour le mot de passe enregistré de ' + who + ' sur ' + host + ' ?' : 'Enregistrer le mot de passe de ' + who + ' pour ' + host + ' ?'));
+    credbar.appendChild(credBtn(update ? 'Mettre à jour' : 'Enregistrer', false, async () => {
+      const r = await ipcRenderer.invoke('vault:save', { site: p.origin, username: p.username, password: p.password });
+      done();
+      if (r.ok) flashCred(r.updated ? 'Mot de passe mis à jour.' : 'Mot de passe enregistré.');
+    }));
+    if (!update) credbar.appendChild(credBtn('Jamais pour ce site', true, async () => { await ipcRenderer.invoke('vault:never-save', p.origin); done(); }));
+    else credbar.appendChild(credBtn('Non merci', true, done));
+  } else if (pr.kind === 'locked') {
+    credbar.appendChild(mk('span', 'cred-text', 'Déverrouille ton coffre pour enregistrer le mot de passe de ' + who + ' (' + host + ').'));
+    credbar.append(...unlockInline(async () => { await computePrompt(tab); refreshCredbar(tab); }));
+  } else if (pr.kind === 'no-account') {
+    credbar.appendChild(mk('span', 'cred-text', 'Créer un compte Pure pour enregistrer et remplir tes mots de passe ?'));
+    credbar.appendChild(credBtn('Créer un compte', false, () => openVaultPanel()));
+    credbar.appendChild(credBtn('Non merci', true, done));
+  }
+  credbar.appendChild(credClose(done));
+  credbar.classList.add('open');
+}
+
+async function renderFillBar(tab) {
+  const st = await ipcRenderer.invoke('vault:status');
+  if (tab.id !== activeId) return;
+  if (!st.exists) { hideCredbar(); return; }
+  const host = hostOf(tab.pw.origin) || tab.pw.origin;
+  const dismiss = () => { tab.pw.fillDismissed = true; hideCredbar(); };
+  if (!st.unlocked) {
+    credbar.innerHTML = '';
+    credbar.append(credIcon(), mk('span', 'cred-text', 'Coffre verrouillé — déverrouille-le pour remplir les identifiants de ' + host), ...unlockInline(() => refreshCredbar(tab)), credClose(dismiss));
+    credbar.classList.add('open');
+    return;
+  }
+  const r = await ipcRenderer.invoke('vault:list-for-origin', tab.pw.origin);
+  if (tab.id !== activeId) return;
+  if (!r.entries || !r.entries.length) { hideCredbar(); return; }
+  credbar.innerHTML = '';
+  credbar.append(credIcon(), mk('span', 'cred-text', 'Remplir avec :'));
+  r.entries.slice(0, 4).forEach(en => credbar.appendChild(credBtn(en.username || '(sans identifiant)', false, () => fillEntry(tab, en.id))));
+  credbar.appendChild(credClose(dismiss));
+  credbar.classList.add('open');
+}
+
+async function fillEntry(tab, id) {
+  const c = await ipcRenderer.invoke('vault:get-creds', id);
+  if (c.error || !tab.webview) return;
+  tab.webview.send('pw:fill', { username: c.username, password: c.password });
+  tab.pw.fillDismissed = true;
+  hideCredbar();
+}
+
+/* ---------- Icônes d'extensions + popovers (remplace l'ancien badge "bloqués") ---------- */
+const SHIELD_SVG = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>';
+let extIconsCache = [];
+let openPopoverCloser = null;
+
+function closePopover() {
+  if (openPopoverCloser) { openPopoverCloser(); openPopoverCloser = null; }
+  popoverBack.classList.remove('open');
+  popoverBack.innerHTML = '';
+}
+popoverBack.addEventListener('click', closePopover);
+
+function openPopover(anchorEl, render) {
+  closePopover();
+  const r = anchorEl.getBoundingClientRect();
+  const pop = document.createElement('div');
+  pop.className = 'popover';
+  pop.style.top = (r.bottom + 8) + 'px';
+  render(pop);
+  // garde le popover dans la fenêtre
+  document.body.appendChild(pop);
+  const w = pop.offsetWidth;
+  let left = r.right - w;
+  left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+  pop.style.left = left + 'px';
+  pop.addEventListener('click', (e) => e.stopPropagation());
+  popoverBack.appendChild(pop);
+  popoverBack.classList.add('open');
+}
+
+async function renderExtIcons() {
+  extIconsCache = IS_PRIVATE ? [] : await ipcRenderer.invoke('extensions:list');
+  extIconsEl.innerHTML = '';
+
+  // Pure Shield (notre bloqueur intégré) — toujours présent
+  const shieldBtn = document.createElement('button');
+  shieldBtn.className = 'ext-icon-btn'; shieldBtn.title = 'Pure Shield';
+  shieldBtn.innerHTML = SHIELD_SVG;
+  shieldBtn.addEventListener('click', () => openShieldPopover(shieldBtn));
+  extIconsEl.appendChild(shieldBtn);
+
+  for (const ext of extIconsCache) {
+    const btn = document.createElement('button');
+    btn.className = 'ext-icon-btn'; btn.title = ext.name;
+    const dataUrl = await ipcRenderer.invoke('extensions:icon', ext.id);
+    if (dataUrl) { const img = document.createElement('img'); img.src = dataUrl; btn.appendChild(img); }
+    else { btn.appendChild(makeIcon(null, ext.name, 18)); }
+    btn.addEventListener('click', () => openExtensionPopover(btn, ext));
+    extIconsEl.appendChild(btn);
+  }
+}
+
+function currentTabPageBlocked() {
+  const tab = tabs.find(t => t.id === activeId);
+  return tab && typeof tab.blockedOnPage === 'number' ? tab.blockedOnPage : 0;
+}
+
+function openShieldPopover(anchor) {
+  openPopover(anchor, (pop) => {
+    pop.innerHTML =
+      '<div class="popover-head"><div class="glyph" style="color:var(--accent-text)">' + SHIELD_SVG.replace('width="24" height="24"', 'width="40" height="40"') + '</div><div class="title">Pure Shield</div></div>' +
+      '<div class="popover-stats">' +
+      '<div class="popover-stat"><span>Bloqués sur cette page</span><b>' + currentTabPageBlocked() + '</b></div>' +
+      '<div class="popover-stat"><span>Bloqués depuis l\'installation</span><b>' + blockedLifetime.toLocaleString('fr-FR') + '</b></div>' +
+      '</div>';
+  });
+}
+
+async function openExtensionPopover(anchor, ext) {
+  const r = anchor.getBoundingClientRect();
+  const winBounds = { x: 0, y: 0 }; // le popup est positionné par le process principal via les coord. de la fenêtre
+  const res = await ipcRenderer.invoke('extensions:open-popup', { id: ext.id, relX: r.left, relY: r.bottom + 6 });
+  if (res.opened) return;
+  if (res.fallbackUrl) { navigateActiveTab(res.fallbackUrl); return; }
+  openPopover(anchor, (pop) => {
+    pop.innerHTML = '<div class="popover-head"><div class="title">' + ext.name + '</div></div>' +
+      '<div class="popover-stats"><div class="settings-desc">Cette extension ne propose pas de fenêtre de réglages.</div></div>';
+  });
+}
+
+ipcRenderer.on('adblock:update', (e, { webContentsId, tabCount, lifetime }) => {
+  blockedLifetime = lifetime;
+  const shieldEl = $('shield-count'); if (shieldEl) shieldEl.textContent = lifetime.toLocaleString('fr-FR');
+  if (webContentsId != null) {
+    const tab = tabs.find(t => {
+      if (!t.webview || !t.webview.getWebContentsId) return false;
+      try { return t.webview.getWebContentsId() === webContentsId; } catch (err) { return false; }
+    });
+    if (tab) tab.blockedOnPage = tabCount;
+  }
+});
+
+/* ---------- Téléchargements ---------- */
+function fmtBytes(n) {
+  if (!n && n !== 0) return '';
+  if (n < 1024) return n + ' o';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' Ko';
+  return (n / (1024 * 1024)).toFixed(1) + ' Mo';
+}
+function dlStateLabel(s) {
+  return { progressing: 'En cours', completed: 'Terminé', cancelled: 'Annulé', interrupted: 'Interrompu' }[s] || s;
+}
+let downloadsCache = [];
+function renderDownloads() {
+  dlList.innerHTML = '';
+  dlEmpty.style.display = downloadsCache.length ? 'none' : 'block';
+  btnDownloads.classList.toggle('active', downloadsCache.some(d => d.state === 'progressing'));
+  downloadsCache.forEach(d => {
+    const row = document.createElement('div');
+    row.className = 'dl-row';
+    const info = document.createElement('div'); info.className = 'dl-info';
+    const name = document.createElement('div'); name.className = 'dl-name'; name.textContent = d.filename;
+    const meta = document.createElement('div'); meta.className = 'dl-meta';
+    meta.textContent = dlStateLabel(d.state) + (d.totalBytes ? ' — ' + fmtBytes(d.receivedBytes) + ' / ' + fmtBytes(d.totalBytes) : '');
+    info.append(name, meta);
+    if (d.state === 'progressing' && d.totalBytes) {
+      const bar = document.createElement('div'); bar.className = 'dl-bar';
+      const fill = document.createElement('div'); fill.className = 'dl-bar-fill';
+      fill.style.width = Math.min(100, Math.round(100 * d.receivedBytes / d.totalBytes)) + '%';
+      bar.appendChild(fill); info.appendChild(bar);
+    }
+    const acts = document.createElement('div'); acts.className = 'vault-actions';
+    if (d.state === 'completed') {
+      const open = document.createElement('button'); open.className = 'ext-btn ghost'; open.textContent = 'Ouvrir';
+      open.addEventListener('click', () => ipcRenderer.invoke('downloads:open-file', d.id));
+      const folder = document.createElement('button'); folder.className = 'ext-btn ghost'; folder.textContent = 'Dossier';
+      folder.addEventListener('click', () => ipcRenderer.invoke('downloads:show-in-folder', d.id));
+      acts.append(open, folder);
+    }
+    const rm = document.createElement('button'); rm.className = 'ext-remove'; rm.textContent = '×'; rm.title = 'Retirer de la liste';
+    rm.addEventListener('click', async () => { downloadsCache = await ipcRenderer.invoke('downloads:remove', d.id); renderDownloads(); });
+    acts.appendChild(rm);
+    row.append(info, acts);
+    dlList.appendChild(row);
+  });
+}
+ipcRenderer.on('downloads:update', (e, list) => { downloadsCache = list; renderDownloads(); });
+
+btnDownloads.addEventListener('click', async () => {
+  const wasOpen = downloadsEl.classList.contains('active');
+  closePanels();
+  if (wasOpen) { restoreTabView(); return; }
+  downloadsEl.classList.add('active'); btnDownloads.classList.add('toggle-on');
+  downloadsCache = await ipcRenderer.invoke('downloads:list');
+  renderDownloads();
+});
+$('downloads-close').addEventListener('click', restoreTabView);
+$('dl-clear-btn').addEventListener('click', async () => { downloadsCache = await ipcRenderer.invoke('downloads:clear'); renderDownloads(); });
+
+/* ---------- Paramètres ---------- */
+const ACCENT_PRESETS = ['#D9799F', '#7C9FD9', '#7CC6A6', '#D9A85C', '#A77CD9', '#5C5C5C'];
+
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function hexToHsl(hex) {
+  let r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s, l = (max + min) / 2;
+  if (max === min) { h = s = 0; }
+  else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      default: h = (r - g) / d + 4;
+    }
+    h /= 6;
+  }
+  return { h: h * 360, s: s * 100, l: l * 100 };
+}
+function hslToHex(h, s, l) {
+  h /= 360; s /= 100; l /= 100;
+  let r, g, b;
+  if (s === 0) { r = g = b = l; }
+  else {
+    const hue2rgb = (p, q, t) => { if (t < 0) t += 1; if (t > 1) t -= 1; if (t < 1 / 6) return p + (q - p) * 6 * t; if (t < 1 / 2) return q; if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6; return p; };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3); g = hue2rgb(p, q, h); b = hue2rgb(p, q, h - 1 / 3);
+  }
+  const toHex = (x) => Math.round(clamp(x, 0, 1) * 255).toString(16).padStart(2, '0');
+  return '#' + toHex(r) + toHex(g) + toHex(b);
+}
+function resolveTheme(pref) {
+  if (IS_PRIVATE) return 'dark';
+  if (pref === 'dark' || pref === 'light') return pref;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+// Applique la couleur d'accent ET le thème : toute la palette (fonds, textes, cartes) prend la teinte de l'accent
+function applyAccentColor(hex) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
+  const { h, s, l } = hexToHsl(hex);
+  const mode = resolveTheme(settingsCache && settingsCache.theme);
+  document.documentElement.setAttribute('data-theme', mode);
+  const root = document.documentElement.style;
+  const set = (k, v) => root.setProperty(k, v);
+  if (mode === 'dark') {
+    set('--paper', hslToHex(h, clamp(s * 0.28, 0, 22), 10));
+    set('--card', hslToHex(h, clamp(s * 0.26, 0, 20), 14));
+    set('--ink', hslToHex(h, clamp(s * 0.30, 0, 25), 93));
+    set('--ink-soft', hslToHex(h, clamp(s * 0.15, 0, 14), 68));
+    set('--pink', hslToHex(h, s, clamp(l, 50, 72)));
+    set('--pink-dark', hslToHex(h, s, clamp(l - 10, 30, 46)));
+    set('--pink-deep', hslToHex(h, clamp(s + 6, 0, 100), clamp(l - 22, 22, 36)));
+    set('--pink-pale', hslToHex(h, clamp(s * 0.35, 0, 30), 19));
+    set('--pink-line', hslToHex(h, clamp(s * 0.30, 0, 26), 28));
+    set('--titlebar', hslToHex(h, clamp(s * 0.50, 0, 40), 14));
+    set('--tab-inactive-text', hslToHex(h, clamp(s * 0.30, 0, 24), 80));
+    set('--accent-text', hslToHex(h, clamp(s, 0, 70), 76));
+  } else {
+    set('--paper', hslToHex(h, clamp(s * 0.9, 0, 60), 96.5));
+    set('--card', '#ffffff');
+    set('--ink', hslToHex(h, clamp(s * 0.6, 0, 40), 12));
+    set('--ink-soft', hslToHex(h, clamp(s * 0.3, 0, 20), 42));
+    set('--pink', hex);
+    set('--pink-dark', hslToHex(h, s, clamp(l - 15, 12, 90)));
+    set('--pink-deep', hslToHex(h, clamp(s + 6, 0, 100), clamp(l - 32, 10, 90)));
+    set('--pink-pale', hslToHex(h, clamp(s - 35, 8, 100), clamp(l + 34, 70, 96)));
+    set('--pink-line', hslToHex(h, clamp(s - 20, 8, 100), clamp(l + 20, 60, 92)));
+    set('--titlebar', hex);
+    set('--tab-inactive-text', hslToHex(h, clamp(s * 0.9, 0, 60), 94));
+    set('--accent-text', hslToHex(h, clamp(s + 6, 0, 100), clamp(l - 32, 10, 90)));
+  }
+}
+
+let settingsCache = null;
+function renderSwatches() {
+  const wrap = $('color-swatches');
+  wrap.innerHTML = '';
+  ACCENT_PRESETS.forEach(c => {
+    const sw = document.createElement('div');
+    sw.className = 'swatch' + (settingsCache.accentColor.toLowerCase() === c.toLowerCase() ? ' selected' : '');
+    sw.style.background = c;
+    sw.addEventListener('click', () => chooseAccent(c));
+    wrap.appendChild(sw);
+  });
+}
+async function chooseAccent(hex) {
+  applyAccentColor(hex);
+  settingsCache = await ipcRenderer.invoke('settings:save', { accentColor: hex });
+  renderSwatches();
+  $('color-custom-input').value = hex;
+}
+async function renderSettingsPanel() {
+  settingsCache = await ipcRenderer.invoke('settings:get');
+  renderSwatches();
+  $('color-custom-input').value = settingsCache.accentColor;
+  renderThemeSeg();
+  applyHomeLook();
+  const t = $('toggle-startup');
+  t.classList.toggle('on', settingsCache.launchAtStartup !== false);
+  $('anim-select').value = String(ANIM_FPS_VALUES.includes(settingsCache.animFps) ? settingsCache.animFps : 60);
+  if (typeof refreshDefaultRow === 'function') refreshDefaultRow();
+  if (typeof renderUpdate === 'function') renderUpdate();
+}
+function renderThemeSeg() {
+  const cur = (settingsCache && settingsCache.theme) || 'system';
+  document.querySelectorAll('#theme-seg button').forEach(b => b.classList.toggle('on', b.dataset.theme === cur));
+}
+document.querySelectorAll('#theme-seg button').forEach(b => b.addEventListener('click', async () => {
+  settingsCache = await ipcRenderer.invoke('settings:save', { theme: b.dataset.theme });
+  applyAccentColor(settingsCache.accentColor);
+  renderThemeSeg();
+}));
+// Thème « Auto » : suit Windows en direct
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (settingsCache && (settingsCache.theme || 'system') === 'system') applyAccentColor(settingsCache.accentColor);
+});
+$('color-custom-input').addEventListener('input', (e) => chooseAccent(e.target.value));
+$('toggle-startup').addEventListener('click', async function () {
+  const on = !this.classList.contains('on');
+  this.classList.toggle('on', on);
+  settingsCache = await ipcRenderer.invoke('settings:save', { launchAtStartup: on });
+});
+$('anim-select').addEventListener('change', async (e) => {
+  const v = Number(e.target.value);
+  setAnimFps(v);
+  settingsCache = await ipcRenderer.invoke('settings:save', { animFps: v });
+});
+// Réglage modifié dans une autre fenêtre Pure
+ipcRenderer.on('settings:anim', (e, v) => {
+  setAnimFps(v);
+  if (settingsCache) settingsCache.animFps = ANIM_FPS;
+  const sel = $('anim-select'); if (sel) sel.value = String(ANIM_FPS);
+});
+$('settings-clear-history').addEventListener('click', async () => { historyCache = await ipcRenderer.invoke('store:clear-history'); });
+
+btnSettings.addEventListener('click', async () => {
+  const wasOpen = settingsEl.classList.contains('active');
+  closePanels();
+  if (wasOpen) { restoreTabView(); return; }
+  settingsEl.classList.add('active'); btnSettings.classList.add('toggle-on');
+  await renderSettingsPanel();
+});
+$('settings-close').addEventListener('click', restoreTabView);
+
+/* ---------- Navigation privée ---------- */
+if (btnPrivate) btnPrivate.addEventListener('click', () => ipcRenderer.invoke('window:open-private'));
+
+/* ---------- Suggestions de la barre d'adresse ---------- */
+let currentSuggestions = [], selectedSuggestion = -1;
+
+function buildSuggestions(query) {
+  const q = query.trim().toLowerCase();
+  const results = [], seen = new Set();
+  if (!q) {
+    historyCache.slice(0, 5).forEach(h => { if (!seen.has(h.url)) { results.push({ type: 'history', label: h.title || h.url, url: h.url, favicon: h.favicon }); seen.add(h.url); } });
+    return results;
+  }
+  bookmarksCache.forEach(b => {
+    if (seen.has(b.url)) return;
+    if (b.title.toLowerCase().includes(q) || b.url.toLowerCase().includes(q)) { results.push({ type: 'bookmark', label: b.title || b.url, url: b.url, favicon: b.favicon }); seen.add(b.url); }
+  });
+  historyCache
+    .filter(h => !seen.has(h.url) && (h.title.toLowerCase().includes(q) || h.url.toLowerCase().includes(q)))
+    .sort((a, b) => (b.visits || 1) - (a.visits || 1)).slice(0, 5)
+    .forEach(h => { results.push({ type: 'history', label: h.title || h.url, url: h.url, favicon: h.favicon }); seen.add(h.url); });
+  results.push({ type: 'search', label: 'Rechercher « ' + query.trim() + ' » sur ' + currentEngine().name, url: searchUrl(query.trim()) });
+  return results.slice(0, 7);
+}
+function renderSuggestions() {
+  if (currentSuggestions.length === 0) { closeSuggestions(); return; }
+  suggestionsEl.innerHTML = '';
+  currentSuggestions.forEach((s, i) => {
+    const row = document.createElement('div');
+    row.className = 'sugg-item' + (i === selectedSuggestion ? ' selected' : '');
+    if (s.favicon) {
+      row.innerHTML = '<img class="sugg-icon"><span class="sugg-text"></span>';
+      setFavicon(row.querySelector('.sugg-icon'), s.favicon);
+    } else {
+      const icon = s.type === 'bookmark' ? '★' : s.type === 'history' ? '◷' : '⌕';
+      row.innerHTML = '<span class="sugg-icon">' + icon + '</span><span class="sugg-text"></span>';
+    }
+    row.querySelector('.sugg-text').textContent = s.label;
+    row.addEventListener('mousedown', (e) => { e.preventDefault(); navigateActiveTab(s.url); });
+    suggestionsEl.appendChild(row);
+  });
+  suggestionsEl.classList.add('open');
+}
+function closeSuggestions() { suggestionsEl.classList.remove('open'); currentSuggestions = []; selectedSuggestion = -1; }
+
+addressBar.addEventListener('input', () => { currentSuggestions = buildSuggestions(addressBar.value); selectedSuggestion = -1; renderSuggestions(); });
+addressBar.addEventListener('keydown', (e) => {
+  if (!currentSuggestions.length) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); selectedSuggestion = Math.min(selectedSuggestion + 1, currentSuggestions.length - 1); renderSuggestions(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); selectedSuggestion = Math.max(selectedSuggestion - 1, -1); renderSuggestions(); }
+  else if (e.key === 'Escape') { closeSuggestions(); }
+});
+// Comme dans Chrome : les suggestions récentes s'ouvrent au clic dans la barre, pas au simple focus automatique
+addressBar.addEventListener('click', () => { if (!suggestionsEl.classList.contains('open')) { currentSuggestions = buildSuggestions(addressBar.value); selectedSuggestion = -1; renderSuggestions(); } });
+document.addEventListener('click', (e) => { if (!e.target.closest('#address-wrap')) closeSuggestions(); });
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { hideContextMenu(); closeShortcutModal(); closePopover(); if (findBar.classList.contains('open')) closeFind(); }
+});
+
+
+/* ---------- Outils de développement (panneau à gauche) ---------- */
+function activeTabObj() { return tabs.find(t => t.id === activeId); }
+function activeWebview() { const t = activeTabObj(); return t && t.webview ? t.webview : null; }
+
+function openDevToolsFor(tab, pt) {
+  if (!tab || !tab.webview) return;
+  let targetId;
+  try { targetId = tab.webview.getWebContentsId(); } catch (e) { return; }
+  if (dt.open && dt.tabId === tab.id) {
+    if (pt) ipcRenderer.invoke('devtools:inspect', { id: targetId, x: pt.x, y: pt.y });
+    return;
+  }
+  closeDevTools();
+  dt = { open: true, tabId: tab.id, view: null };
+  document.body.classList.add('dt-open');
+  const v = document.createElement('webview');
+  dt.view = v;
+  v.setAttribute('src', 'about:blank');
+  $('dt-body').appendChild(v);
+  v.addEventListener('did-attach', () => {
+    ipcRenderer.invoke('devtools:attach', { targetId, frontId: v.getWebContentsId(), x: pt ? pt.x : null, y: pt ? pt.y : null });
+  }, { once: true });
+}
+function closeDevTools() {
+  if (!dt.open) return;
+  const tab = tabs.find(t => t.id === dt.tabId);
+  try { if (tab && tab.webview) ipcRenderer.invoke('devtools:close', tab.webview.getWebContentsId()); } catch (e) { /* page déjà fermée */ }
+  if (dt.view) dt.view.remove();
+  dt = { open: false, tabId: null, view: null };
+  document.body.classList.remove('dt-open');
+}
+function toggleDevTools() {
+  if (dt.open) { closeDevTools(); return; }
+  const t = activeTabObj();
+  if (t && t.webview) openDevToolsFor(t, null);
+}
+$('dt-close').addEventListener('click', closeDevTools);
+(function dtResizer() {
+  const handle = $('dt-resizer');
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); handle.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      const w = Math.max(280, Math.min(ev.clientX - $('content').getBoundingClientRect().left, window.innerWidth - 320));
+      document.documentElement.style.setProperty('--dt-w', w + 'px');
+    };
+    const up = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); };
+    handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', up);
+  });
+})();
+
+/* ---------- Recherche dans la page (Ctrl+F) ---------- */
+function openFind() {
+  if (!activeWebview()) return;
+  findBar.classList.add('open'); findInput.focus(); findInput.select();
+  if (findInput.value) doFind(true, true);
+}
+function closeFind() {
+  findBar.classList.remove('open'); findCount.textContent = '';
+  const w = activeWebview();
+  try { if (w) w.stopFindInPage('clearSelection'); } catch (e) { /* page pas prête */ }
+}
+function doFind(fresh, forward) {
+  const w = activeWebview(), q = findInput.value;
+  if (!w) return;
+  if (!q) { try { w.stopFindInPage('clearSelection'); } catch (e) { /* ignoré */ } findCount.textContent = ''; return; }
+  try { w.findInPage(q, { findNext: !fresh, forward: forward !== false, matchCase: false }); } catch (e) { /* page pas prête */ }
+}
+findInput.addEventListener('input', () => doFind(true, true));
+findInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); doFind(false, !e.shiftKey); }
+  else if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+});
+$('find-next').addEventListener('click', () => doFind(false, true));
+$('find-prev').addEventListener('click', () => doFind(false, false));
+$('find-close').addEventListener('click', closeFind);
+
+/* ---------- Raccourcis clavier (envoyés par le processus principal, même quand la page a le focus) ---------- */
+const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
+function zoomBy(dir) {
+  const w = activeWebview();
+  if (!w) return;
+  let cur = 1; try { cur = w.getZoomFactor(); } catch (e) { return; }
+  let idx = ZOOM_STEPS.findIndex(z => z >= cur - 0.001);
+  if (idx === -1) idx = ZOOM_STEPS.length - 1;
+  idx = Math.max(0, Math.min(ZOOM_STEPS.length - 1, idx + dir));
+  w.setZoomFactor(ZOOM_STEPS[idx]);
+}
+function reopenClosedTab() {
+  const c = closedTabs.pop();
+  if (c) createTab(c.url, { title: c.title, favicon: c.favicon });
+}
+function switchTabBy(step) {
+  if (!tabs.length) return;
+  const i = tabs.findIndex(t => t.id === activeId);
+  if (i === -1) { activateTab(tabs[step > 0 ? 0 : tabs.length - 1].id); return; }   // depuis le Menu Pure
+  if (tabs.length < 2) return;
+  activateTab(tabs[(i + step + tabs.length) % tabs.length].id);
+}
+function runShortcut(name) {
+  const tab = activeTabObj(), wv = activeWebview();
+  if (name.startsWith('tab:')) {
+    const n = Number(name.slice(4));
+    const target = n === 9 ? tabs[tabs.length - 1] : tabs[n - 1];
+    if (target) activateTab(target.id);
+    return;
+  }
+  switch (name) {
+    case 'devtools': toggleDevTools(); break;
+    case 'reload': if (wv) wv.reload(); break;
+    case 'hard-reload': if (wv) wv.reloadIgnoringCache(); break;
+    case 'new-tab': openMenu(); break;
+    case 'reopen-tab': reopenClosedTab(); break;
+    case 'close-tab': if (activeId) closeTab(activeId); break;
+    case 'next-tab': switchTabBy(1); break;
+    case 'prev-tab': switchTabBy(-1); break;
+    case 'focus-address': addressBar.focus(); addressBar.select(); break;
+    case 'back': if (wv && wv.canGoBack()) wv.goBack(); break;
+    case 'forward': if (wv && wv.canGoForward()) wv.goForward(); break;
+    case 'bookmark': if (!starBtn.disabled) starBtn.click(); break;
+    case 'find': openFind(); break;
+    case 'find-next': if (findBar.classList.contains('open')) doFind(false, true); else openFind(); break;
+    case 'find-prev': if (findBar.classList.contains('open')) doFind(false, false); else openFind(); break;
+    case 'print': if (wv) wv.print(); break;
+    case 'history': btnHistory.click(); break;
+    case 'downloads': btnDownloads.click(); break;
+    case 'private-window': ipcRenderer.invoke('window:open-private'); break;
+    case 'zoom-in': zoomBy(1); break;
+    case 'zoom-out': zoomBy(-1); break;
+    case 'zoom-reset': if (wv) wv.setZoomFactor(1); break;
+    case 'fullscreen': ipcRenderer.send('window:fullscreen'); break;
+  }
+}
+ipcRenderer.on('shortcut', (e, name) => runShortcut(name));
+
+/* ---------- Menu Pure : horloge, recherche intelligente, widgets ---------- */
+const hsInput = $('hs-input'), hsCalc = $('hs-calc'), hsHint = $('hs-hint');
+const HINT_DEFAULT = 'Astuce : tape !yt, !w, !g, !maps, !gh… devant ta recherche pour viser un site précis. Les calculs (12*8) s’affichent ici.';
+
+function cap(t) { return t.charAt(0).toUpperCase() + t.slice(1); }
+function tickClock() {
+  const d = new Date(), h = d.getHours();
+  $('home-clock').textContent = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  $('home-date').textContent = cap(d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+  const hello = h < 5 ? 'Bonne nuit' : h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir';
+  $('home-greet').textContent = hello + (accountName ? ', ' + accountName : '');
+}
+let accountName = '';
+setInterval(() => { if (homeEl.classList.contains('active')) tickClock(); }, 5000);
+
+function fmtNum(v) { return v.toLocaleString('fr-FR', { maximumFractionDigits: 10 }); }
+function calcEval(raw) {
+  const t = String(raw).trim();
+  if (!t || /\d\s+\d/.test(t) || !/[+\-*/^×÷xX]/.test(t.replace(/^[-+]/, ''))) return null;
+  const e = t.replace(/[x×]/gi, '*').replace(/÷/g, '/').replace(/,/g, '.').replace(/\^/g, '**').replace(/\s+/g, '');
+  if (!/^[\d+\-*/().]+$/.test(e) || !/\d/.test(e)) return null;
+  try {
+    const v = Function('"use strict";return (' + e + ')')();
+    return typeof v === 'number' && isFinite(v) ? v : null;
+  } catch (err) { return null; }
+}
+function updateHomeSearchHints() {
+  const q = hsInput.value.trim();
+  const c = q ? calcEval(q) : null;
+  if (c !== null) { hsCalc.style.display = 'block'; hsCalc.textContent = '= ' + fmtNum(c) + '   ·   Entrée pour copier'; hsHint.textContent = ''; return; }
+  hsCalc.style.display = 'none';
+  const b = q ? bangMatch(q) : null;
+  if (b) hsHint.textContent = 'Recherche sur ' + b.name + ' : ' + b.query;
+  else if (q && looksLikeUrl(q)) hsHint.textContent = 'Entrée pour ouvrir ' + q;
+  else hsHint.textContent = q ? 'Entrée pour rechercher sur ' + currentEngine().name : HINT_DEFAULT;
+}
+hsInput.addEventListener('input', updateHomeSearchHints);
+$('home-search').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = hsInput.value.trim();
+  if (!q) return;
+  const c = calcEval(q);
+  if (c !== null) { require('electron').clipboard.writeText(String(c)); hsCalc.textContent = 'Résultat copié : ' + fmtNum(c); return; }
+  const url = resolveInput(q);
+  if (url) { hsInput.value = ''; updateHomeSearchHints(); navigateActiveTab(url); }
+});
+
+function updatePlaceholders() {
+  const n = currentEngine().name;
+  addressBar.placeholder = 'Effectuez une recherche sur ' + n + ' ou saisissez une URL';
+  hsInput.placeholder = 'Rechercher sur ' + n + ', calculer ou saisir une adresse…';
+  document.querySelectorAll('.eng-chip[data-engine]').forEach(c => c.classList.toggle('on', c.dataset.engine === (settingsCache && settingsCache.searchEngine || 'ddg')));
+  const sel = $('engine-select'); if (sel) sel.value = settingsCache && settingsCache.searchEngine || 'ddg';
+}
+async function chooseEngine(key) {
+  settingsCache = await ipcRenderer.invoke('settings:save', { searchEngine: key });
+  updatePlaceholders(); updateHomeSearchHints();
+}
+(function buildEngineUI() {
+  const chips = $('hs-engines'), sel = $('engine-select');
+  Object.keys(SEARCH_ENGINES).forEach(k => {
+    const c = document.createElement('button');
+    c.type = 'button'; c.className = 'eng-chip'; c.dataset.engine = k; c.textContent = SEARCH_ENGINES[k].name;
+    c.addEventListener('click', () => chooseEngine(k));
+    chips.appendChild(c);
+    const o = document.createElement('option'); o.value = k; o.textContent = SEARCH_ENGINES[k].name; sel.appendChild(o);
+  });
+  sel.addEventListener('change', () => chooseEngine(sel.value));
+})();
+
+/* Pages récentes */
+function renderRecent() {
+  const box = $('recent-list'); box.innerHTML = '';
+  const list = historyCache.slice(0, 5);
+  if (!list.length) { const n = document.createElement('div'); n.className = 'empty-note'; n.textContent = 'Tes dernières pages apparaîtront ici.'; box.appendChild(n); return; }
+  list.forEach(h => {
+    const row = document.createElement('div'); row.className = 'recent-row';
+    row.appendChild(makeIcon(h.favicon, h.title, 22));
+    const tx = document.createElement('div'); tx.className = 'recent-text';
+    const t = document.createElement('div'); t.className = 'recent-title'; t.textContent = h.title || h.url;
+    const hs = document.createElement('div'); hs.className = 'recent-host'; hs.textContent = hostOf(h.url) || h.url;
+    tx.appendChild(t); tx.appendChild(hs); row.appendChild(tx);
+    row.addEventListener('click', () => navigateActiveTab(h.url));
+    box.appendChild(row);
+  });
+}
+
+/* Tâches */
+let tasks = [];
+function saveTasks() { ipcRenderer.invoke('settings:save', { tasks }).then(st => { settingsCache = st; }); }
+function renderTasks() {
+  const ul = $('task-list'); ul.innerHTML = '';
+  tasks.forEach(t => {
+    const li = document.createElement('li'); li.className = 'task' + (t.done ? ' done' : '');
+    const cb = document.createElement('span'); cb.className = 'task-check'; cb.textContent = t.done ? '✓' : '';
+    cb.addEventListener('click', () => { t.done = !t.done; saveTasks(); renderTasks(); });
+    const tx = document.createElement('span'); tx.className = 'task-text'; tx.textContent = t.text;
+    const del = document.createElement('button'); del.className = 'task-del'; del.textContent = '×'; del.title = 'Supprimer';
+    del.addEventListener('click', () => { tasks = tasks.filter(x => x !== t); saveTasks(); renderTasks(); });
+    li.appendChild(cb); li.appendChild(tx); li.appendChild(del); ul.appendChild(li);
+  });
+  const left = tasks.filter(t => !t.done).length;
+  $('task-count').textContent = tasks.length ? left + ' à faire' : '';
+}
+$('task-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = $('task-input').value.trim();
+  if (!text || tasks.length >= 50) return;
+  tasks.unshift({ id: String(Date.now()), text: text.slice(0, 120), done: false });
+  $('task-input').value = '';
+  saveTasks(); renderTasks();
+});
+
+/* Notes rapides */
+let noteTimer = null;
+$('note-area').addEventListener('input', () => {
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => ipcRenderer.invoke('settings:save', { notes: $('note-area').value }).then(st => { settingsCache = st; }), 500);
+});
+
+/* Minuteur */
+const tm = { total: 25 * 60, left: 25 * 60, end: 0, iv: null };
+function tmRender() {
+  const m = Math.floor(tm.left / 60), sec = tm.left % 60;
+  $('tm-display').textContent = String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+  $('tm-toggle').textContent = tm.iv ? 'Pause' : (tm.left < tm.total && tm.left > 0 ? 'Reprendre' : 'Démarrer');
+}
+function tmDone() {
+  try {
+    const ctx = new AudioContext();
+    [0, 0.25, 0.5].forEach(d => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 880; g.gain.value = 0.08; o.connect(g); g.connect(ctx.destination);
+      o.start(ctx.currentTime + d); o.stop(ctx.currentTime + d + 0.15);
+    });
+  } catch (e) { /* audio indisponible */ }
+  try { new Notification('Pure — Minuteur', { body: 'Le temps est écoulé.' }); } catch (e) { /* notifications indisponibles */ }
+}
+function tmTick() {
+  tm.left = Math.max(0, Math.round((tm.end - Date.now()) / 1000));
+  if (tm.left <= 0) { clearInterval(tm.iv); tm.iv = null; tmDone(); }
+  tmRender();
+}
+function tmStop() { clearInterval(tm.iv); tm.iv = null; }
+$('tm-toggle').addEventListener('click', () => {
+  if (tm.iv) { tmStop(); tmRender(); return; }
+  if (tm.left <= 0) tm.left = tm.total;
+  tm.end = Date.now() + tm.left * 1000;
+  tm.iv = setInterval(tmTick, 250);
+  tmRender();
+});
+$('tm-reset').addEventListener('click', () => { tmStop(); tm.left = tm.total; tmRender(); });
+document.querySelectorAll('.tm-preset').forEach(b => b.addEventListener('click', () => {
+  tmStop(); tm.total = tm.left = Number(b.dataset.min) * 60;
+  document.querySelectorAll('.tm-preset').forEach(x => x.classList.toggle('on', x === b));
+  tmRender();
+}));
+
+/* Remplissage de la page à chaque affichage */
+function renderHomeExtras() {
+  tickClock();
+  updateHomeSearchHints();
+  if (IS_PRIVATE || (settingsCache && settingsCache.homeWidgets === false)) return;
+  renderRecent();
+  renderTasks();
+  const na = $('note-area');
+  if (document.activeElement !== na && settingsCache) na.value = settingsCache.notes || '';
+  ipcRenderer.invoke('adblock:stats').then(n => { blockedLifetime = n; $('shield-count').textContent = n.toLocaleString('fr-FR'); });
+  tmRender();
+}
+
+/* Fond d'écran, widgets, thème de la page d'accueil */
+function applyHomeLook() {
+  const st = settingsCache || {};
+  const on = !IS_PRIVATE && !!st.wallpaperUrl;
+  homeEl.classList.toggle('has-wp', on);
+  $('home-bg').style.backgroundImage = on ? 'url("' + st.wallpaperUrl + '")' : '';
+  homeEl.style.setProperty('--wp-dim', String(st.wallpaperDim == null ? 0.25 : st.wallpaperDim));
+  $('home-widgets').style.display = (IS_PRIVATE || st.homeWidgets === false) ? 'none' : '';
+  const th = $('wp-thumb');
+  th.style.backgroundImage = st.wallpaperUrl ? 'url("' + st.wallpaperUrl + '")' : '';
+  th.classList.toggle('empty', !st.wallpaperUrl);
+  $('wp-clear').style.display = st.wallpaperUrl ? '' : 'none';
+  $('wp-dim-row').style.display = st.wallpaperUrl ? '' : 'none';
+  $('wp-dim').value = Math.round((st.wallpaperDim == null ? 0.25 : st.wallpaperDim) * 100);
+  $('toggle-widgets').classList.toggle('on', st.homeWidgets !== false);
+  updatePlaceholders();
+}
+$('wp-import').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('wallpaper:import');
+  const status = $('wp-status');
+  if (r.error) { status.textContent = r.error; status.classList.add('error'); return; }
+  if (r.cancelled) return;
+  status.textContent = ''; status.classList.remove('error');
+  settingsCache = r.settings; applyHomeLook();
+});
+$('wp-clear').addEventListener('click', async () => { settingsCache = await ipcRenderer.invoke('wallpaper:clear'); $('wp-status').textContent = ''; applyHomeLook(); });
+let dimTimer = null;
+$('wp-dim').addEventListener('input', (e) => {
+  const v = Number(e.target.value) / 100;
+  homeEl.style.setProperty('--wp-dim', String(v));
+  clearTimeout(dimTimer);
+  dimTimer = setTimeout(async () => { settingsCache = await ipcRenderer.invoke('settings:save', { wallpaperDim: v }); }, 300);
+});
+$('toggle-widgets').addEventListener('click', async function () {
+  const on = !this.classList.contains('on');
+  settingsCache = await ipcRenderer.invoke('settings:save', { homeWidgets: on });
+  applyHomeLook(); renderHomeExtras();
+});
+
+/* ---------- Fichiers et liens ouverts depuis Windows + navigateur par défaut ---------- */
+const { webUtils } = require('electron');
+const OPENABLE_EXT = /\.(html?|xhtml?|xht|shtml|svg)$/i;
+
+function titleForUrl(u) {
+  if (!/^file:/i.test(u)) return undefined;
+  try { return decodeURIComponent(u.split(/[?#]/)[0].split('/').pop()) || undefined; } catch (e) { return undefined; }
+}
+function openExternalUrls(urls) {
+  if (IS_PRIVATE) return;
+  (urls || []).forEach(u => {
+    if (typeof u === 'string' && /^(https?|file):/i.test(u)) createTab(u, { title: titleForUrl(u) });
+  });
+}
+// Pure déjà ouvert + double-clic sur un .html / lien externe : la page arrive dans un nouvel onglet
+ipcRenderer.on('open-urls', (e, urls) => openExternalUrls(urls));
+
+// Glisser-déposer un fichier .html sur l'interface (barre d'onglets, barre d'outils...) l'ouvre dans un onglet
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const urls = [];
+  Array.from((e.dataTransfer && e.dataTransfer.files) || []).forEach(f => {
+    try {
+      const p = webUtils.getPathForFile(f);
+      if (p && OPENABLE_EXT.test(p)) urls.push(require('url').pathToFileURL(p).href);
+    } catch (err) { /* fichier ignoré */ }
+  });
+  openExternalUrls(urls);
+});
+
+const defaultBack = $('default-back');
+async function getDefaultStatus() {
+  try { return await ipcRenderer.invoke('default:status'); } catch (e) { return { supported: false, isDefault: false }; }
+}
+function closeDefaultPopup() { defaultBack.classList.remove('open'); }
+
+async function maybeShowDefaultPopup() {
+  if (IS_PRIVATE || IS_DETACHED) return;
+  if (settingsCache && settingsCache.askDefaultBrowser === false) return;
+  const st = await getDefaultStatus();
+  if (!st.supported || st.isDefault) return;
+  $('dp-never').checked = false;
+  defaultBack.classList.add('open');
+}
+async function dismissDefaultPopup() {
+  if ($('dp-never').checked) settingsCache = await ipcRenderer.invoke('settings:save', { askDefaultBrowser: false });
+  closeDefaultPopup();
+}
+$('dp-later').addEventListener('click', dismissDefaultPopup);
+$('dp-set').addEventListener('click', async () => {
+  closeDefaultPopup();
+  await ipcRenderer.invoke('default:open-settings');
+});
+defaultBack.addEventListener('click', (e) => { if (e.target === defaultBack) dismissDefaultPopup(); });
+
+async function refreshDefaultRow() {
+  const st = await getDefaultStatus();
+  $('default-row').style.display = st.supported ? '' : 'none';
+  $('default-ask-row').style.display = st.supported ? '' : 'none';
+  if (!st.supported) return;
+  $('default-desc').textContent = st.isDefault ? 'Pure est ton navigateur par défaut.' : "Pure n'est pas encore ton navigateur par défaut.";
+  const b = $('default-set-btn');
+  b.disabled = st.isDefault;
+  b.textContent = st.isDefault ? 'Déjà par défaut' : 'Définir par défaut';
+  $('toggle-default-ask').classList.toggle('on', !settingsCache || settingsCache.askDefaultBrowser !== false);
+}
+$('default-set-btn').addEventListener('click', () => ipcRenderer.invoke('default:open-settings'));
+$('toggle-default-ask').addEventListener('click', async function () {
+  const on = !this.classList.contains('on');
+  this.classList.toggle('on', on);
+  settingsCache = await ipcRenderer.invoke('settings:save', { askDefaultBrowser: on });
+});
+// Retour depuis les Paramètres Windows : on revérifie, le popup disparaît si Pure vient d'être choisi
+window.addEventListener('focus', async () => {
+  if (!defaultBack.classList.contains('open') && !settingsEl.classList.contains('active')) return;
+  const st = await getDefaultStatus();
+  if (st.isDefault) closeDefaultPopup();
+  if (settingsEl.classList.contains('active')) refreshDefaultRow();
+});
+
+/* ---------- Mises à jour intégrées ---------- */
+let updateState = null, dismissedUpdate = null;
+function renderUpdate() {
+  const st = updateState;
+  const supported = !!(st && st.supported) && !IS_PRIVATE;
+  $('update-row').style.display = supported ? '' : 'none';
+  $('update-auto-row').style.display = supported ? '' : 'none';
+  const toast = $('update-toast');
+  if (!supported) { toast.classList.remove('open'); return; }
+
+  const d = $('update-desc'), b = $('update-btn');
+  b.disabled = false;
+  b.textContent = 'Rechercher';
+  if (st.status === 'checking') { d.textContent = 'Recherche de mises à jour…'; b.disabled = true; b.textContent = '…'; }
+  else if (st.status === 'downloading') { d.textContent = 'Téléchargement de Pure ' + st.version + '… ' + (st.progress || 0) + ' %'; b.disabled = true; b.textContent = '…'; }
+  else if (st.status === 'ready') { d.textContent = 'Pure ' + st.version + ' est prête à être installée.'; b.textContent = 'Redémarrer et installer'; }
+  else if (st.status === 'error') { d.textContent = 'Impossible de vérifier les mises à jour (hors ligne ?). Pure ' + st.current + ' reste installé.'; b.textContent = 'Réessayer'; }
+  else { d.textContent = 'Pure ' + st.current + ' — tu as la dernière version.'; }
+  $('toggle-autoupdate').classList.toggle('on', !settingsCache || settingsCache.autoUpdate !== false);
+
+  // Bandeau : seulement dans la fenêtre principale, quand la mise à jour est prête et pas déjà repoussée
+  const show = st.status === 'ready' && !IS_DETACHED && dismissedUpdate !== st.version;
+  if (show) $('ut-title').textContent = 'Pure ' + st.version + ' est prêt';
+  toast.classList.toggle('open', show);
+}
+ipcRenderer.on('update:state', (e, st) => { updateState = st; renderUpdate(); });
+async function installUpdate() {
+  $('ut-install').disabled = true; $('ut-install').textContent = 'Installation…';
+  const ok = await ipcRenderer.invoke('update:install');
+  if (!ok) { $('ut-install').disabled = false; $('ut-install').textContent = 'Redémarrer'; }
+}
+$('ut-install').addEventListener('click', installUpdate);
+$('ut-later').addEventListener('click', () => { dismissedUpdate = updateState && updateState.version; renderUpdate(); });
+$('update-btn').addEventListener('click', async () => {
+  if (updateState && updateState.status === 'ready') { installUpdate(); return; }
+  updateState = await ipcRenderer.invoke('update:check');
+  renderUpdate();
+});
+$('toggle-autoupdate').addEventListener('click', async function () {
+  const on = !this.classList.contains('on');
+  this.classList.toggle('on', on);
+  settingsCache = await ipcRenderer.invoke('settings:save', { autoUpdate: on });
+});
+ipcRenderer.invoke('update:get-state').then(st => { updateState = st; renderUpdate(); }).catch(() => {});
+
+/* ---------- Démarrage : couleur enregistrée, icônes d'extensions, restauration de session ---------- */
+(async function init() {
+  const st = await ipcRenderer.invoke('settings:get');
+  settingsCache = st;
+  setAnimFps(st.animFps);
+  tasks = Array.isArray(st.tasks) ? st.tasks.slice() : [];
+  applyAccentColor(st.accentColor);
+  applyHomeLook();
+  try { blockedLifetime = await ipcRenderer.invoke('adblock:stats'); } catch (e) { /* ignoré */ }
+  try { const vs = await ipcRenderer.invoke('vault:status'); if (vs && vs.exists && vs.name) accountName = String(vs.name).split(/\s+/)[0]; } catch (e) { /* ignoré */ }
+
+  await refreshCaches();
+  renderQuickbar();
+  renderExtIcons();
+
+  if (IS_DETACHED) {
+    createTab(DETACHED_URL, { title: URL_PARAMS.get('otitle') || undefined, favicon: URL_PARAMS.get('ofav') || undefined, noAnim: true });
+    return;
+  }
+  let launched = [];
+  if (!IS_PRIVATE) {
+    const saved = await ipcRenderer.invoke('store:get-session');
+    if (saved && saved.length) {
+      saved.forEach(entry => createTab(entry.url, { title: entry.title, favicon: entry.favicon, lazy: true, skipActivate: true }));
+    }
+    // Fichier .html ou lien reçu au lancement (double-clic dans l'Explorateur, « Ouvrir avec Pure »...)
+    try { launched = await ipcRenderer.invoke('launch:take-pending') || []; } catch (e) { launched = []; }
+  }
+  if (launched.length) openExternalUrls(launched); else openMenu();
+  // Rappel « navigateur par défaut » : pas quand Pure vient d'ouvrir un fichier ou un lien demandé par l'utilisateur
+  if (!launched.length) setTimeout(maybeShowDefaultPopup, 1800);
+})();
+</script>
+</body>
+</html>
