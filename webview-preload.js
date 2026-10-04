@@ -163,6 +163,7 @@ if (/^https?:$/.test(location.protocol)) {
 // Le son reste dans l'onglet ; seules les images partent, par un canal direct (MessagePort).
 (() => {
   let session = null;
+  let hint = null, hintUntil = 0;         // vidéo sur laquelle l'utilisateur vient de cliquer le bouton « Détacher »
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
   function pickVideo() {
@@ -186,7 +187,9 @@ if (/^https?:$/.test(location.protocol)) {
 
   async function start(port, opts) {
     stop();
-    const video = pickVideo();
+    const hinted = hint && hint.isConnected && Date.now() < hintUntil && hint.videoWidth > 0 ? hint : null;
+    hint = null;
+    const video = hinted || pickVideo();
     if (!port) return;
     if (!video) { port.postMessage({ type: 'error', reason: 'no-video' }); port.close(); return; }
     if (video.mediaKeys) { port.postMessage({ type: 'error', reason: 'protected' }); port.close(); return; }   // contenu protégé (DRM)
@@ -258,6 +261,119 @@ if (/^https?:$/.test(location.protocol)) {
       s.busy = false;
     }, 33);
   }
+
+
+  // --- Bouton « Détacher la vidéo » : apparaît dans le coin de la vidéo quand la souris la survole ---
+  // Construit avec des styles écrits un par un (compatible avec les règles de sécurité des pages) et isolé des styles du site.
+  const eligible = (v) => v && v.isConnected && v.videoWidth > 0 && v.videoHeight > 0 && v.readyState >= 1 && !v.mediaKeys;
+  const LABEL_ON = 'Détacher la vidéo', LABEL_OFF = 'Rattacher la vidéo';
+  let btnHost = null, btn = null, btnLabel = null;
+  let hoverVideo = null, overBtn = false, shown = false, hideTimer = null, raf = 0, lastMove = null;
+
+  function buildButton() {
+    btnHost = document.createElement('div');
+    Object.assign(btnHost.style, { position: 'fixed', top: '0', left: '0', width: '0', height: '0', zIndex: '2147483647', pointerEvents: 'none' });
+    const root = btnHost.attachShadow({ mode: 'closed' });
+    btn = document.createElement('div');
+    Object.assign(btn.style, {
+      position: 'fixed', top: '10px', right: '10px', height: '34px', boxSizing: 'border-box', padding: '0 8px',
+      display: 'none', alignItems: 'center', borderRadius: '11px', background: 'rgba(140,52,89,0.93)', color: '#FBF1F5',
+      font: '600 12.5px "Segoe UI", Arial, sans-serif', cursor: 'pointer', pointerEvents: 'auto', userSelect: 'none',
+      boxShadow: '0 4px 16px rgba(46,22,34,0.45)', opacity: '0', transition: 'opacity .15s ease, background .15s ease'
+    });
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('width', '18'); svg.setAttribute('height', '18');
+    svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.9');
+    svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round');
+    const r1 = document.createElementNS(NS, 'rect');
+    ['x:3', 'y:5', 'width:18', 'height:14', 'rx:2.5'].forEach(kv => { const [k, v] = kv.split(':'); r1.setAttribute(k, v); });
+    const r2 = document.createElementNS(NS, 'rect');
+    ['x:12', 'y:11.5', 'width:7', 'height:5', 'rx:1.2'].forEach(kv => { const [k, v] = kv.split(':'); r2.setAttribute(k, v); });
+    r2.setAttribute('fill', 'currentColor'); r2.setAttribute('stroke', 'none');
+    svg.append(r1, r2);
+    Object.assign(svg.style, { flex: '0 0 auto', display: 'block' });
+    btnLabel = document.createElement('span');
+    Object.assign(btnLabel.style, { maxWidth: '0', overflow: 'hidden', whiteSpace: 'nowrap', marginLeft: '0', transition: 'max-width .18s ease, margin .18s ease' });
+    btnLabel.textContent = LABEL_ON;
+    btn.append(svg, btnLabel);
+    root.appendChild(btn);
+
+    btn.addEventListener('mouseenter', () => {
+      overBtn = true; clearTimeout(hideTimer);
+      btnLabel.style.maxWidth = '150px'; btnLabel.style.marginLeft = '8px'; btn.style.background = 'rgba(184,81,121,0.97)';
+    });
+    btn.addEventListener('mouseleave', () => {
+      overBtn = false;
+      btnLabel.style.maxWidth = '0'; btnLabel.style.marginLeft = '0'; btn.style.background = 'rgba(140,52,89,0.93)';
+      scheduleHide();
+    });
+    // Le clic ne doit pas atteindre le lecteur de la page (sinon la vidéo se met en pause)
+    ['mousedown', 'mouseup', 'pointerdown', 'pointerup', 'dblclick'].forEach(t => btn.addEventListener(t, (e) => { e.stopPropagation(); }));
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation(); e.preventDefault();
+      if (!e.isTrusted) return;                       // seul un vrai clic de l'utilisateur compte (pas un script de la page)
+      hint = hoverVideo; hintUntil = Date.now() + 5000;
+      hideButton();
+      try { ipcRenderer.sendToHost('pip:request'); } catch (err) { /* page fermée */ }
+    });
+  }
+
+  function showButton(v) {
+    if (!btnHost) buildButton();
+    if (!btnHost.isConnected) (document.documentElement || document.body).appendChild(btnHost);
+    hoverVideo = v;
+    clearTimeout(hideTimer);
+    btnLabel.textContent = session && session.video === v ? LABEL_OFF : LABEL_ON;
+    const r = v.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth || window.innerWidth, vh = document.documentElement.clientHeight || window.innerHeight;
+    btn.style.top = clamp(Math.max(r.top, 0) + 10, 8, Math.max(8, vh - 44)) + 'px';
+    btn.style.right = Math.max(8, vw - Math.min(r.right, vw) + 10) + 'px';
+    if (!shown) {
+      shown = true;
+      btn.style.display = 'flex';
+      requestAnimationFrame(() => { if (shown) btn.style.opacity = '1'; });
+    }
+  }
+  function hideButton() {
+    clearTimeout(hideTimer);
+    if (!shown) return;
+    shown = false; overBtn = false;
+    btn.style.opacity = '0';
+    setTimeout(() => { if (!shown && btn) btn.style.display = 'none'; }, 170);
+  }
+  function scheduleHide() {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => { if (!overBtn) hideButton(); }, 350);
+  }
+
+  function videoAt(x, y) {
+    const scan = (list) => {
+      for (const el of list) {
+        if (el.tagName === 'VIDEO') return el;
+        if (el.shadowRoot && el.shadowRoot.elementsFromPoint) { const inner = scan(el.shadowRoot.elementsFromPoint(x, y)); if (inner) return inner; }
+      }
+      return null;
+    };
+    return scan(document.elementsFromPoint(x, y));
+  }
+
+  function onFrame() {
+    raf = 0;
+    const e = lastMove;
+    if (!e || document.fullscreenElement) { hideButton(); return; }
+    if (e.target === btnHost) { clearTimeout(hideTimer); return; }      // la souris est sur le bouton lui-même
+    const v = videoAt(e.clientX, e.clientY);
+    if (v && eligible(v)) {
+      const r = v.getBoundingClientRect();
+      if (r.width >= 160 && r.height >= 90) { showButton(v); return; }
+    }
+    if (shown && !overBtn) scheduleHide();
+  }
+  document.addEventListener('mousemove', (e) => { lastMove = e; if (!raf) raf = requestAnimationFrame(onFrame); }, true);
+  document.addEventListener('mouseleave', () => { if (shown && !overBtn) scheduleHide(); }, true);
+  window.addEventListener('scroll', () => { if (shown) hideButton(); }, true);
+  window.addEventListener('resize', () => { if (shown) hideButton(); });
 
   ipcRenderer.on('pip:start', (event, opts) => { start(event.ports && event.ports[0], opts); });
   ipcRenderer.on('pip:stop', () => stop());

@@ -1266,6 +1266,7 @@ function attachWebview(tab, url) {
   });
   webview.addEventListener('ipc-message', (ev) => {
     if (ev.channel === 'ui:hide-menus') { hideContextMenu(); closeSuggestions(); return; }
+    if (ev.channel === 'pip:request') { if (tab.id === activeId) togglePip(); return; }   // bouton « Détacher » affiché sur la vidéo
     onWebviewMessage(tab, ev.channel, ev.args && ev.args[0]);
   });
   webview.addEventListener('found-in-page', (ev) => {

@@ -1,14 +1,14 @@
 {
   "name": "pure",
   "productName": "Pure",
-  "version": "26.2.0",
+  "version": "26.3.0",
   "description": "Navigateur Pure : bloqueur de pub, favoris, historique, mots de passe, téléchargements, couleur personnalisable, navigation privée, extensions du Chrome Web Store, navigateur par défaut Windows, ouverture des fichiers .html",
   "main": "main.js",
   "author": "Pure",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "package-win": "electron-packager . Pure --platform=win32 --arch=x64 --out=dist --overwrite --app-version=26.2.0 --icon=build/icon.ico"
+    "package-win": "electron-packager . Pure --platform=win32 --arch=x64 --out=dist --overwrite --app-version=26.3.0 --icon=build/icon.ico"
   },
   "dependencies": {
     "@ghostery/adblocker-electron": "^2.18.2",
