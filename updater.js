@@ -11,6 +11,12 @@ function parseVersion(v) {
   return m ? [Number(m[1]), Number(m[2]), Number(m[3] || 0)] : null;
 }
 
+// « 26.1.0 » s'affiche « 26.1 » ; un éventuel 3e chiffre non nul reste visible (« 26.1.3 »)
+function formatVersion(v) {
+  const p = parseVersion(v);
+  return p ? (p[2] === 0 ? p[0] + '.' + p[1] : p.join('.')) : String(v || '');
+}
+
 function isNewer(remote, local) {
   const a = parseVersion(remote), b = parseVersion(local);
   if (!a || !b) return false;
@@ -42,7 +48,7 @@ function createUpdater(opts) {
 
   const state = {
     status: 'idle',      // idle | checking | downloading | ready | uptodate | error
-    current: String(getVersion()),
+    current: formatVersion(getVersion()),
     version: null,       // version proposée
     progress: 0,         // 0..100 pendant le téléchargement
     error: null,
@@ -147,7 +153,7 @@ function createUpdater(opts) {
       }
       if (!res.ok) throw new Error('GitHub a répondu ' + res.status);
       const rel = await res.json();
-      const version = String(rel.tag_name || '').replace(/^v/i, '');
+      const version = formatVersion(rel.tag_name);
       if (!isNewer(version, state.current)) {
         set({ status: 'uptodate', checkedAt: Date.now(), version: null });
         return { ...state };
@@ -175,4 +181,4 @@ function createUpdater(opts) {
   return { check, install, getState: () => ({ ...state }) };
 }
 
-module.exports = { createUpdater, parseVersion, isNewer, pickAsset };
+module.exports = { createUpdater, parseVersion, formatVersion, isNewer, pickAsset };

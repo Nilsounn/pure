@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data: blob:">
+<title>Pure — vidéo détachée</title>
+<style>
+  :root {
+    --deep: #8C3459; --accent: #D9799F; --cream: #FBF1F5;
+    --bar-h: 34px;     /* identique à BAR_H dans pip.js */
+    --grip: 28px;      /* identique à GRIP dans pip.js */
+  }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; user-select: none; -webkit-user-select: none; cursor: default; }
+  #frame { position: absolute; inset: 0; border-radius: 12px; overflow: hidden; background: transparent; }
+
+  /* La vidéo : devient transparente quand la souris est dessus (et que les clics passent à travers) */
+  #v { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; opacity: 1; transition: opacity .14s ease; }
+  body.hover #v { opacity: .28; }
+
+  /* Zone du haut : déplacer, lecture / pause, fermer */
+  #bar {
+    position: absolute; top: 0; left: 0; right: 0; height: var(--bar-h);
+    display: flex; align-items: center; gap: 4px; padding: 0 6px;
+    background: rgba(140, 52, 89, .94); color: var(--cream);
+    opacity: 0; transform: translateY(-4px); transition: opacity .14s ease, transform .14s ease; pointer-events: auto;
+    cursor: grab;
+  }
+  body.hover #bar { opacity: 1; transform: none; }
+  body.dragging #bar { cursor: grabbing; }
+  .brand { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 15px; padding: 0 8px 0 4px; opacity: .95; }
+  .dots { flex: 1; text-align: center; letter-spacing: 3px; font-size: 13px; opacity: .55; line-height: 1; }
+  .btn {
+    width: 26px; height: 26px; border: 0; border-radius: 8px; background: transparent; color: var(--cream);
+    display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0;
+  }
+  .btn:hover { background: rgba(251, 241, 245, .2); }
+  .btn svg { width: 16px; height: 16px; display: block; }
+  #ico-play { display: none; }
+  body.paused #ico-play { display: block; }
+  body.paused #ico-pause { display: none; }
+
+  /* Poignée du coin bas droit : redimensionner (le format de la vidéo est conservé) */
+  #grip {
+    position: absolute; right: 0; bottom: 0; width: var(--grip); height: var(--grip);
+    border-radius: 12px 0 12px 0; background: rgba(140, 52, 89, .94);
+    opacity: 0; transition: opacity .14s ease; cursor: nwse-resize; pointer-events: auto;
+  }
+  body.hover #grip { opacity: 1; }
+  #grip svg { position: absolute; right: 5px; bottom: 5px; width: 14px; height: 14px; color: var(--cream); opacity: .85; }
+
+  /* Mince contour rose pendant le survol, pour garder la fenêtre visible malgré la transparence */
+  #outline { position: absolute; inset: 0; border-radius: 12px; border: 2px solid rgba(217, 121, 159, 0); transition: border-color .14s ease; pointer-events: none; }
+  body.hover #outline { border-color: rgba(217, 121, 159, .9); }
+</style>
+</head>
+<body>
+<div id="frame">
+  <canvas id="v" width="16" height="9"></canvas>
+  <div id="bar" title="Glisse pour déplacer">
+    <span class="brand">Pure</span>
+    <span class="dots">⋯⋯</span>
+    <button class="btn" id="btn-toggle" title="Lecture / pause">
+      <svg id="ico-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4.2" height="14" rx="1.2"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2"/></svg>
+      <svg id="ico-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.2v13.6a1 1 0 0 0 1.5.86l11-6.8a1 1 0 0 0 0-1.72l-11-6.8A1 1 0 0 0 8 5.2z"/></svg>
+    </button>
+    <button class="btn" id="btn-close" title="Fermer la vidéo détachée">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div id="grip" title="Glisse pour redimensionner">
+    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5L5 12M12 9l-3 3"/></svg>
+  </div>
+  <div id="outline"></div>
+</div>
+<script>
+const { ipcRenderer } = require('electron');
+const canvas = document.getElementById('v');
+const ctx = canvas.getContext('2d');
+const bar = document.getElementById('bar'), grip = document.getElementById('grip');
+let port = null, readySent = false, lastAspect = 0;
+let decoding = false, nextFrame = null;
+window.__pip = { frames: 0, w: 0, h: 0 };      // lu par les tests
+
+// --- Réception des images envoyées par la page ---
+ipcRenderer.on('pip:port', (e) => {
+  port = e.ports[0];
+  port.onmessage = (ev) => onMessage(ev.data);
+  port.start();
+});
+
+function onMessage(m) {
+  if (!m) return;
+  if (m.type === 'hello') {
+    document.body.classList.toggle('paused', !!m.paused);
+    if (!readySent) { readySent = true; ipcRenderer.send('pip:ready', { w: m.w, h: m.h }); }
+  } else if (m.type === 'frame') {
+    nextFrame = m;
+    pump();
+  } else if (m.type === 'state') {
+    document.body.classList.toggle('paused', !!m.paused);
+  } else if (m.type === 'error') {
+    ipcRenderer.send('pip:error', m.reason);
+  } else if (m.type === 'ended') {
+    ipcRenderer.send('pip:request-close');
+  }
+}
+
+// On ne décode qu'une image à la fois et on garde seulement la plus récente
+async function pump() {
+  if (decoding || !nextFrame) return;
+  decoding = true;
+  const m = nextFrame; nextFrame = null;
+  try {
+    const bmp = await createImageBitmap(new Blob([m.buf], { type: 'image/jpeg' }));
+    if (canvas.width !== bmp.width || canvas.height !== bmp.height) { canvas.width = bmp.width; canvas.height = bmp.height; }
+    ctx.drawImage(bmp, 0, 0);
+    bmp.close();
+    window.__pip.frames++; window.__pip.w = m.w; window.__pip.h = m.h;
+    const a = m.w / m.h;
+    if (!lastAspect || Math.abs(a - lastAspect) / lastAspect > 0.01) { lastAspect = a; ipcRenderer.send('pip:aspect', { w: m.w, h: m.h }); }
+  } catch (err) { /* image abîmée : on passe à la suivante */ }
+  decoding = false;
+  if (nextFrame) pump();
+}
+
+// --- Souris : la position du curseur est suivie par le processus principal (les clics passent à travers) ---
+ipcRenderer.on('pip:hover', (e, st) => {
+  document.body.classList.toggle('hover', !!st.inside);
+  window.__pip.hover = !!st.inside;
+});
+
+function beginDrag(mode, ev) {
+  ev.preventDefault();
+  document.body.classList.add('dragging');
+  ipcRenderer.send('pip:drag-start', mode);
+  const end = () => {
+    document.body.classList.remove('dragging');
+    ipcRenderer.send('pip:drag-end');
+    window.removeEventListener('mouseup', end, true);
+    window.removeEventListener('blur', end, true);
+  };
+  window.addEventListener('mouseup', end, true);
+  window.addEventListener('blur', end, true);
+}
+bar.addEventListener('mousedown', (ev) => { if (ev.button === 0 && !ev.target.closest('.btn')) beginDrag('move', ev); });
+grip.addEventListener('mousedown', (ev) => { if (ev.button === 0) beginDrag('resize', ev); });
+
+document.getElementById('btn-toggle').addEventListener('click', () => { if (port) port.postMessage({ type: 'toggle' }); });
+document.getElementById('btn-close').addEventListener('click', () => ipcRenderer.send('pip:request-close'));
+
+// Taille réelle de la fenêtre : la page adapte la résolution des images envoyées
+let sizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(sizeTimer);
+  sizeTimer = setTimeout(() => { if (port) port.postMessage({ type: 'size', width: Math.round(window.innerWidth * (window.devicePixelRatio || 1)) }); }, 200);
+});
+</script>
+</body>
+</html>

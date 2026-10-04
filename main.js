@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, ipcMain, dialog, net, clipboard, shell, nativeTheme, webContents, screen } = require('electron');
+const { app, BrowserWindow, session, ipcMain, dialog, net, clipboard, shell, nativeTheme, webContents, screen, MessageChannelMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -7,6 +7,7 @@ const { execFile } = require('child_process');
 const { pathToFileURL, fileURLToPath } = require('url');
 const { spawn } = require('child_process');
 const { createUpdater } = require('./updater');
+const { createPip } = require('./pip');
 const { crxToZip } = require('./crx');
 const { createVaultService } = require('./vault');
 const { createAdblockService } = require('./adblock');
@@ -277,6 +278,9 @@ ipcMain.handle('update:check', async () => {
 });
 ipcMain.handle('update:install', () => (canRegister() ? getUpdater().install() : false));
 
+// --- Vidéo détachée (fenêtre flottante) ---
+const pipSvc = createPip({ app, BrowserWindow, MessageChannelMain, ipcMain, screen, webContents, userDataDir: app.getPath('userData') });
+
 let mainWindow = null;
 const normalWindows = new Set();   // fenêtre principale + fenêtres issues d'un onglet détaché
 const privateWindows = new Set();
@@ -324,6 +328,7 @@ function shortcutFor(i) {
     if (k === 'r') return 'hard-reload';
     if (k === 't') return 'reopen-tab';
     if (k === 'n') return 'private-window';
+    if (k === 'p') return 'pip';
     return null;
   }
   switch (k) {

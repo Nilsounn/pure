@@ -1,23 +1,19 @@
-# Publier une nouvelle version de Pure
+# Mettre à jour Pure (méthode simple)
 
-Pure vérifie les GitHub Releases de `Nilsounn/pure` au lancement (puis toutes les 4 h). Quand une Release plus récente existe, il télécharge `PureSetup.exe`, le vérifie, et propose « Redémarrer » : plus besoin de repasser par l'installateur à la main.
+Tu n'as rien à construire ni à publier toi-même : GitHub le fait.
 
-## Pour chaque version
+## Chaque fois que tu reçois de nouveaux fichiers
+1. Va sur https://github.com/Nilsounn/pure
+2. **Add file > Upload files**
+3. Glisse tous les fichiers du zip décompressé (dossiers `build` et `.github` compris), puis **Commit changes**.
+4. Attends 5 à 10 minutes (onglet **Actions** : une pastille verte = c'est publié).
 
-1. Change la version dans `package.json` (ex. `1.14.1`). C'est ce numéro que Pure compare à celui de la Release.
-2. Construis l'application :
-   `npm run package-win`
-3. Construis l'installateur avec le même numéro :
-   `makensis /DVERSION=1.14.1 installer.nsi`   → crée `dist\PureSetup.exe`
-4. Publie une Release :
-   - Tag **`v1.14.1`** (le « v » est facultatif, mais le numéro doit être plus grand que le précédent).
-   - Pièce jointe : **`PureSetup.exe`** (ce nom exact).
-   - Avec GitHub CLI : `gh release create v1.14.1 dist/PureSetup.exe --title "Pure 1.14.1" --notes "Ce qui change"`
+C'est tout. Au prochain lancement, les Pure installés proposent « Redémarrer » pour passer à la nouvelle version.
 
 ## À savoir
-
-- Le dépôt doit rester **public** (Pure interroge l'API GitHub sans identifiant).
-- Une Release en « brouillon » ou « pré-version » est ignorée.
-- Protège ton compte GitHub avec la double authentification : quiconque peut publier une Release peut mettre à jour les Pure installés.
-- La première version contenant l'updater (1.14.0) doit être installée à la main. Les suivantes se mettront à jour toutes seules.
-- Test rapide : installe 1.14.0, publie 1.14.1, relance Pure : le bandeau « Pure 1.14.1 est prêt » apparaît après quelques secondes. Réglages > Mises à jour permet aussi de lancer la vérification à la main.
+- Les versions s'appellent 26.1, 26.2, 26.3… (26 = l'année, puis le numéro de la mise à jour). Dans `package.json` elles s'écrivent `26.1.0`, `26.2.0`… : rien à y changer à la main, je le fais.
+- Rien ne se publie si ce numéro n'a pas augmenté.
+- Pastille rouge dans Actions : ouvre-la, copie le message d'erreur et envoie-le-moi.
+- Garde le dépôt **public** et active la double authentification sur ton compte GitHub.
+- La première fois, installe Pure à la main (PureSetup-26.1.exe) : les versions suivantes se mettront à jour toutes seules.
+- Réglages > Mises à jour dans Pure permet de lancer la vérification à la main.

@@ -308,6 +308,11 @@
   .dp-never{ display:flex; align-items:center; justify-content:center; gap:7px; margin-top:16px; font-size:12px; color:var(--ink-soft); cursor:pointer; }
   .dp-never input{ accent-color:var(--pink-dark); margin:0; }
 
+  /* --- Vidéo détachée --- */
+  #btn-pip.active{ color:var(--pink-dark); background:var(--pink-soft, rgba(217,121,159,0.18)); }
+  #pip-note{ position:fixed; left:50%; bottom:28px; transform:translate(-50%,12px); background:var(--card); color:var(--accent-text); font-size:13px; padding:11px 18px; border-radius:12px; box-shadow:0 10px 34px rgba(46,22,34,0.28); z-index:90; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease; max-width:min(520px, calc(100vw - 40px)); text-align:center; }
+  #pip-note.open{ opacity:1; transform:translate(-50%,0); }
+
   /* --- Notification de mise à jour --- */
   #update-toast{ position:fixed; right:20px; bottom:20px; width:330px; max-width:calc(100vw - 40px); background:var(--card); border-radius:16px; padding:18px 20px 16px; box-shadow:0 14px 44px rgba(46,22,34,0.30); z-index:90; display:none; }
   #update-toast.open{ display:block; }
@@ -442,6 +447,7 @@
     <button class="nav-btn" id="btn-history" title="Historique (Ctrl+H)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></button>
     <button class="nav-btn" id="btn-extensions" title="Extensions"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M10 4a2 2 0 1 1 4 0v1h4a1 1 0 0 1 1 1v4h-1a2 2 0 1 0 0 4h1v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-4h1a2 2 0 1 0 0-4H5V6a1 1 0 0 1 1-1h4V4z"/></svg></button>
     <button class="nav-btn" id="btn-vault" title="Mots de passe"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2.5 2.5M14 9l2 2"/></svg></button>
+    <button class="nav-btn" id="btn-pip" title="Détacher la vidéo (Ctrl+Maj+P)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><rect x="12" y="11.5" width="7" height="5" rx="1.2" fill="currentColor" stroke="none"/></svg></button>
     <button class="nav-btn" id="btn-downloads" title="Téléchargements (Ctrl+J)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4"/><path d="M5 18h14"/></svg><span class="dl-badge"></span></button>
     <div id="ext-icons"></div>
     <button class="nav-btn" id="btn-private" title="Nouvelle fenêtre de navigation privée"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c2-3 5-4 9-4s7 1 9 4c-2 3-5 4-9 4s-7-1-9-4z"/><circle cx="8.5" cy="12" r="1.6"/><circle cx="15.5" cy="12" r="1.6"/><path d="M2 8c1-1.3 2-2 3-2.4M22 8c-1-1.3-2-2-3-2.4"/></svg><span>Privé</span></button>
@@ -620,6 +626,7 @@
   </div>
 </div>
 
+<div id="pip-note" role="status"></div>
 <div id="update-toast" role="status">
   <div class="ut-title" id="ut-title">Pure est à jour</div>
   <div class="ut-text">Redémarre Pure pour installer la mise à jour. Ça prend quelques secondes et tes onglets sont retrouvés.</div>
@@ -2501,6 +2508,7 @@ function runShortcut(name) {
     case 'history': btnHistory.click(); break;
     case 'downloads': btnDownloads.click(); break;
     case 'private-window': ipcRenderer.invoke('window:open-private'); break;
+    case 'pip': togglePip(); break;
     case 'zoom-in': zoomBy(1); break;
     case 'zoom-out': zoomBy(-1); break;
     case 'zoom-reset': if (wv) wv.setZoomFactor(1); break;
@@ -2799,6 +2807,37 @@ window.addEventListener('focus', async () => {
   if (st.isDefault) closeDefaultPopup();
   if (settingsEl.classList.contains('active')) refreshDefaultRow();
 });
+
+/* ---------- Vidéo détachée ---------- */
+const btnPip = $('btn-pip'), pipNote = $('pip-note');
+let pipNoteTimer = null, pipBusy = false;
+function showPipNote(text) {
+  pipNote.textContent = text;
+  pipNote.classList.add('open');
+  clearTimeout(pipNoteTimer);
+  pipNoteTimer = setTimeout(() => pipNote.classList.remove('open'), 3800);
+}
+const PIP_ERRORS = {
+  'no-video': "Aucune vidéo à détacher sur cette page. Lance la vidéo puis réessaie.",
+  'protected': "Cette vidéo est protégée ou vient d'un autre site : impossible de la détacher.",
+  'timeout': "La vidéo n'a pas répondu. Réessaie une fois qu'elle est lancée.",
+  'invalid': "Impossible de détacher cette page."
+};
+async function togglePip() {
+  if (pipBusy) return;
+  if (btnPip.classList.contains('active')) { await ipcRenderer.invoke('pip:close'); return; }
+  const wv = activeWebview();
+  if (!wv || homeEl.classList.contains('active')) { showPipNote(PIP_ERRORS['no-video']); return; }
+  let id;
+  try { id = wv.getWebContentsId(); } catch (e) { showPipNote(PIP_ERRORS.invalid); return; }
+  pipBusy = true;
+  try {
+    const r = await ipcRenderer.invoke('pip:open', id);
+    if (!r || !r.ok) showPipNote(PIP_ERRORS[r && r.reason] || PIP_ERRORS['no-video']);
+  } finally { pipBusy = false; }
+}
+btnPip.addEventListener('click', togglePip);
+ipcRenderer.on('pip:state', (e, st) => { btnPip.classList.toggle('active', !!(st && st.open)); });
 
 /* ---------- Mises à jour intégrées ---------- */
 let updateState = null, dismissedUpdate = null;

@@ -6,9 +6,9 @@
 
 Unicode true
 
-; Version : makensis /DVERSION=1.14.1 installer.nsi (à défaut, la valeur ci-dessous)
+; Version : makensis /DVERSION=26.3 installer.nsi (à défaut, la valeur ci-dessous)
 !ifndef VERSION
-  !define VERSION "1.14.0"
+  !define VERSION "26.2"
 !endif
 
 !include "MUI2.nsh"

@@ -158,3 +158,107 @@ if (/^https?:$/.test(location.protocol)) {
     }, 1000);
   }
 }
+
+// --- Vidéo détachée : envoie les images de la vidéo vers la fenêtre flottante (pip.js / pip.html) ---
+// Le son reste dans l'onglet ; seules les images partent, par un canal direct (MessagePort).
+(() => {
+  let session = null;
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  function pickVideo() {
+    const area = (el) => { const r = el.getBoundingClientRect(); return Math.max(0, r.width) * Math.max(0, r.height); };
+    const list = [...document.querySelectorAll('video')].filter(v => v.videoWidth > 0 && v.videoHeight > 0 && v.readyState >= 2);
+    if (!list.length) return null;
+    const score = (v) => (!v.paused && !v.ended ? 1e12 : 0) + area(v);
+    list.sort((a, b) => score(b) - score(a));
+    return list[0];
+  }
+
+  function stop() {
+    const s = session;
+    if (!s) return;
+    session = null;
+    s.closed = true;
+    clearInterval(s.timer);
+    s.listeners.forEach(([t, ev, fn]) => t.removeEventListener(ev, fn));
+    try { s.port.close(); } catch (e) { /* déjà fermé */ }
+  }
+
+  async function start(port, opts) {
+    stop();
+    const video = pickVideo();
+    if (!port) return;
+    if (!video) { port.postMessage({ type: 'error', reason: 'no-video' }); port.close(); return; }
+    if (video.mediaKeys) { port.postMessage({ type: 'error', reason: 'protected' }); port.close(); return; }   // contenu protégé (DRM)
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const s = { video, port, canvas, ctx, timer: null, busy: false, lastTime: -1, force: true, closed: false, listeners: [],
+                targetW: clamp(Math.round(((opts && opts.width) || 480) * 2), 480, 1280) };
+
+    const grab = async () => {
+      const vw = video.videoWidth, vh = video.videoHeight;
+      const scale = Math.min(1, s.targetW / vw);
+      const w = Math.max(2, Math.round(vw * scale)), h = Math.max(2, Math.round(vh * scale));
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      ctx.drawImage(video, 0, 0, w, h);
+      const blob = await new Promise((res, rej) => {
+        try { canvas.toBlob(b => (b ? res(b) : rej(new Error('encodage'))), 'image/jpeg', 0.72); } catch (e) { rej(e); }
+      });
+      return { buf: await blob.arrayBuffer(), w, h };
+    };
+
+    // Première image : si la page l'interdit (vidéo d'un autre site, protégée...), on le dit tout de suite
+    let first;
+    try { first = await grab(); } catch (e) { port.postMessage({ type: 'error', reason: 'protected' }); port.close(); return; }
+    if (session) stop();
+    session = s;
+    s.lastTime = video.currentTime;
+    s.force = false;
+    port.postMessage({ type: 'hello', w: first.w, h: first.h, paused: video.paused });
+    port.postMessage({ type: 'frame', buf: first.buf, w: first.w, h: first.h }, [first.buf]);
+
+    const on = (t, ev, fn) => { t.addEventListener(ev, fn); s.listeners.push([t, ev, fn]); };
+    const sendState = () => { if (!s.closed) port.postMessage({ type: 'state', paused: video.paused || video.ended }); };
+    on(video, 'play', sendState);
+    on(video, 'pause', sendState);
+    on(video, 'ended', sendState);
+    on(video, 'seeked', () => { s.force = true; });
+    on(video, 'loadedmetadata', () => { s.force = true; });
+    on(video, 'resize', () => { s.force = true; });
+    on(window, 'pagehide', () => { try { port.postMessage({ type: 'ended' }); } catch (e) { /* ignoré */ } stop(); });
+
+    port.onmessage = (ev) => {
+      const m = ev.data || {};
+      if (m.type === 'toggle') {
+        if (video.paused || video.ended) video.play().catch(() => {}); else video.pause();
+      } else if (m.type === 'size') {
+        s.targetW = clamp(Number(m.width) || 960, 480, 1280);
+        s.force = true;
+      } else if (m.type === 'stop') {
+        stop();
+      }
+    };
+    port.start();
+
+    // ~30 images par seconde ; on n'envoie que si l'image a changé (rien à envoyer quand la vidéo est en pause)
+    s.timer = setInterval(async () => {
+      if (s.busy || s.closed || video.readyState < 2) return;
+      if (!s.force && video.currentTime === s.lastTime) return;
+      s.busy = true;
+      try {
+        const f = await grab();
+        s.lastTime = video.currentTime;
+        s.force = false;
+        if (!s.closed) port.postMessage({ type: 'frame', buf: f.buf, w: f.w, h: f.h }, [f.buf]);
+      } catch (e) {
+        if (!s.closed) port.postMessage({ type: 'error', reason: 'protected' });
+        stop();
+      }
+      s.busy = false;
+    }, 33);
+  }
+
+  ipcRenderer.on('pip:start', (event, opts) => { start(event.ports && event.ports[0], opts); });
+  ipcRenderer.on('pip:stop', () => stop());
+})();
