@@ -1,0 +1,77 @@
+# Publication automatique de Pure.
+# Quand de nouveaux fichiers arrivent sur le dépôt avec un numéro de version plus grand dans package.json,
+# GitHub construit PureSetup.exe tout seul et publie la Release : les Pure installés se mettent alors à jour.
+name: Publier Pure
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publier-pure
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Lire la version
+        id: v
+        run: |
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "label=$(node -p "(v => v[2] === '0' ? v[0] + '.' + v[1] : v.join('.'))(require('./package.json').version.split('.'))")" >> "$GITHUB_OUTPUT"
+
+      - name: Cette version est-elle déjà publiée ?
+        id: exists
+        run: |
+          if gh release view "v${{ steps.v.outputs.label }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "La version ${{ steps.v.outputs.label }} est déjà publiée : rien à faire (augmente le numéro dans package.json pour publier une nouvelle version)."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Installer les dépendances
+        if: steps.exists.outputs.exists == 'false'
+        run: npm ci
+
+      - name: Construire l'application Windows
+        if: steps.exists.outputs.exists == 'false'
+        run: >
+          npx electron-packager . Pure --platform=win32 --arch=x64 --out=dist --overwrite
+          --app-version=${{ steps.v.outputs.version }} --icon=build/icon.ico
+          --ignore="^/dist" --ignore="^/installer\.nsi" --ignore="^/\.github" --ignore="^/RELEASE\.md"
+
+      - name: Installer NSIS si besoin
+        if: steps.exists.outputs.exists == 'false'
+        run: |
+          if [ ! -f "/c/Program Files (x86)/NSIS/makensis.exe" ]; then choco install nsis -y --no-progress; fi
+
+      - name: Construire l'installateur
+        if: steps.exists.outputs.exists == 'false'
+        run: >
+          "/c/Program Files (x86)/NSIS/makensis.exe" -V2
+          -DVERSION=${{ steps.v.outputs.label }} installer.nsi
+
+      - name: Publier la Release
+        if: steps.exists.outputs.exists == 'false'
+        run: >
+          gh release create "v${{ steps.v.outputs.label }}" dist/PureSetup.exe
+          --title "Pure ${{ steps.v.outputs.label }}"
+          --notes "Mise à jour de Pure ${{ steps.v.outputs.label }}. Les Pure déjà installés la proposent automatiquement au prochain lancement."
