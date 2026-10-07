@@ -329,6 +329,7 @@ function shortcutFor(i) {
     if (k === 't') return 'reopen-tab';
     if (k === 'n') return 'private-window';
     if (k === 'p') return 'pip';
+    if (k === 's') return 'split';
     return null;
   }
   switch (k) {
@@ -456,6 +457,8 @@ const DEFAULT_SETTINGS = {
   wallpaper: null, wallpaperRev: 0, wallpaperDim: 0.25,
   searchEngine: 'ddg', homeWidgets: true, notes: '', tasks: [],
   animFps: 60,   // 0 = animations désactivées, 30 / 60 / 120, 999 = cadence de l'écran
+  perfMode: true,     // mode performance : effets visuels réduits (défilement, flous, animations plafonnées)
+  freezeTabs: true,   // fige les onglets d'arrière-plan (processeur ~0)
   autoUpdate: true,   // vérifie les mises à jour au lancement et les télécharge en tâche de fond
   askDefaultBrowser: true   // propose de définir Pure comme navigateur par défaut au lancement
 };
@@ -475,7 +478,7 @@ function publicSettings(st) { return { ...st, wallpaperUrl: wallpaperUrl(st) }; 
 function sanitizePatch(p) {
   const out = {};
   if (!p || typeof p !== 'object') return out;
-  const types = { accentColor: 'string', launchAtStartup: 'boolean', theme: 'string', wallpaperDim: 'number', searchEngine: 'string', homeWidgets: 'boolean', notes: 'string', tasks: 'object', animFps: 'number', askDefaultBrowser: 'boolean', autoUpdate: 'boolean' };
+  const types = { accentColor: 'string', launchAtStartup: 'boolean', theme: 'string', wallpaperDim: 'number', searchEngine: 'string', homeWidgets: 'boolean', notes: 'string', tasks: 'object', animFps: 'number', askDefaultBrowser: 'boolean', autoUpdate: 'boolean', perfMode: 'boolean', freezeTabs: 'boolean' };
   Object.keys(types).forEach(k => { if (k in p && typeof p[k] === types[k]) out[k] = p[k]; });
   if ('accentColor' in out && !/^#[0-9a-fA-F]{6}$/.test(out.accentColor)) delete out.accentColor;
   if ('theme' in out && !['light', 'dark', 'system'].includes(out.theme)) delete out.theme;
@@ -622,6 +625,15 @@ ipcMain.handle('store:save-session', (e, list) => {
 });
 
 // --- Paramètres ---
+// --- Mode performance : réglages Chromium appliqués au démarrage (avant « ready ») ---
+// Pas de « shaders » dans l'interface de Pure : les effets GPU les plus coûteux sont les flous (backdrop-filter),
+// retirés côté interface. Ici : défilement lissé et animations des sites (prefers-reduced-motion) coupés.
+const PERF_ON = (() => { try { return readStore().settings.perfMode !== false; } catch (e) { return true; } })();
+if (PERF_ON) {
+  app.commandLine.appendSwitch('disable-smooth-scrolling');
+  app.commandLine.appendSwitch('force-prefers-reduced-motion');
+}
+
 ipcMain.handle('settings:get', () => publicSettings(readStore().settings));
 
 // --- Outils de développement : affichés dans un panneau à gauche de la fenêtre ---
@@ -700,6 +712,69 @@ ipcMain.handle('settings:save', (e, rawPatch) => {
     app.setLoginItemSettings({ openAtLogin: !!patch.launchAtStartup, path: process.execPath, args: [] });
   }
   return publicSettings(data.settings);
+});
+
+
+// --- Onglets : mémoire utilisée (processus de la page) et gel en arrière-plan ---
+let metricsCache = { t: 0, byPid: new Map() };
+function processMemoryKb(pid) {
+  const now = Date.now();
+  if (now - metricsCache.t > 900) {
+    const byPid = new Map();
+    try { app.getAppMetrics().forEach(mt => byPid.set(mt.pid, mt)); } catch (e) { /* ignoré */ }
+    metricsCache = { t: now, byPid };
+  }
+  const mt = metricsCache.byPid.get(pid);
+  if (!mt || !mt.memory) return null;
+  return mt.memory.privateBytes || mt.memory.workingSetSize || null;   // en Ko
+}
+function ownedGuest(sender, id) {
+  const wc = webContents.fromId(Number(id));
+  if (!wc || wc.isDestroyed() || wc.getType() !== 'webview' || wc.hostWebContents !== sender) return null;
+  return wc;
+}
+ipcMain.handle('tabs:memory', (e, ids) => {
+  const out = {};
+  (Array.isArray(ids) ? ids.slice(0, 200) : []).forEach(id => {
+    const wc = ownedGuest(e.sender, id);
+    if (!wc) return;
+    let kb = null;
+    try { kb = processMemoryKb(wc.getOSProcessId()); } catch (err) { /* page pas prête */ }
+    out[id] = kb;
+  });
+  return out;
+});
+
+// Gel réel de la page (cycle de vie Chromium « frozen ») : plus aucun script ni minuteur, processeur ~0.
+// Opérations sérialisées par onglet pour qu'un « dégel » ne soit jamais doublé par un gel en retard.
+const freezeChain = new Map();
+let freezeSupported = true;
+function runFrozen(wc, frozen) {
+  const dbg = wc.debugger;
+  return (async () => {
+    if (wc.isDestroyed()) return false;
+    if (frozen) {
+      if (!freezeSupported) return false;
+      if (!dbg.isAttached()) dbg.attach('1.3');
+      try { await dbg.sendCommand('Page.setWebLifecycleState', { state: 'frozen' }); return true; }
+      catch (err) { freezeSupported = false; try { dbg.detach(); } catch (e2) { /* ignoré */ } return false; }
+    }
+    if (dbg.isAttached()) {
+      try { await dbg.sendCommand('Page.setWebLifecycleState', { state: 'active' }); } catch (err) { /* ignoré */ }
+      try { dbg.detach(); } catch (err) { /* ignoré */ }
+    }
+    return true;
+  })().catch(() => false);
+}
+ipcMain.handle('tab:freeze', (e, msg) => {
+  const wc = ownedGuest(e.sender, msg && msg.id);
+  if (!wc) return false;
+  const frozen = !!(msg && msg.frozen);
+  const prev = freezeChain.get(wc.id) || Promise.resolve();
+  const next = prev.then(() => runFrozen(wc, frozen));
+  freezeChain.set(wc.id, next);
+  next.then(() => { if (freezeChain.get(wc.id) === next) freezeChain.delete(wc.id); });
+  return next;
 });
 
 // --- Extensions ---
@@ -979,6 +1054,7 @@ function ensurePrivateSession() {
   if (privateSession) return privateSession;
   privateSession = session.fromPartition('incognito-pure'); // non persistante : tout disparaît à la fermeture
   setupAdBlocker(privateSession);
+  if (PERF_ON) { try { privateSession.setSpellCheckerEnabled(false); } catch (e) { /* ignoré */ } }
   if (adblockSvc) adblockSvc.enableSession(privateSession);
   attachDownloads(privateSession, downloadsPrivate, false, () => [...privateWindows]);
   return privateSession;
@@ -1096,6 +1172,7 @@ function createWindow() {
 
   pureSession = session.fromPartition('persist:pure');
   setupAdBlocker(pureSession);
+  if (PERF_ON) { try { pureSession.setSpellCheckerEnabled(false); } catch (e) { /* ignoré */ } }
   attachDownloads(pureSession, downloadsNormal, true, () => [...normalWindows].filter(w => !w.isDestroyed()));
 
   const store = readStore();

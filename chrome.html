@@ -400,6 +400,51 @@
   body.dt-open #content > .panel{ left:var(--dt-w,480px); }
   body.dt-open #findbar{ right:16px; }
 
+  /* --- Aperçu d'onglet au survol --- */
+  #tab-preview{ position:fixed; z-index:9990; width:248px; display:none; flex-direction:column; background:var(--card); border:1px solid var(--pink-line); border-radius:12px; box-shadow:0 10px 28px rgba(0,0,0,.28); overflow:hidden; pointer-events:none; }
+  #tab-preview.show{ display:flex; }
+  #tp-thumb{ width:100%; height:150px; background:var(--pink-pale); display:flex; align-items:center; justify-content:center; overflow:hidden; border-bottom:1px solid var(--pink-line); }
+  #tp-thumb img{ width:100%; height:100%; object-fit:cover; object-position:top; display:block; }
+  #tp-thumb .tp-none{ font-size:12px; color:var(--ink-soft); padding:0 14px; text-align:center; }
+  #tp-info{ padding:9px 12px 10px; display:flex; flex-direction:column; gap:3px; min-width:0; }
+  #tp-title{ font-size:12.5px; font-weight:600; color:var(--ink); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word; }
+  #tp-host{ font-size:11.5px; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #tp-meta{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:4px; }
+  #tp-ram{ font-size:11.5px; font-weight:600; color:var(--accent-text); background:var(--pink-pale); border-radius:999px; padding:2px 9px; }
+  #tp-state{ font-size:11px; color:var(--ink-soft); }
+  body.tab-dragging #tab-preview{ display:none !important; }
+
+  /* --- Mode performance : on retire les effets GPU coûteux --- */
+  body.perf *, body.perf *::before, body.perf *::after{ backdrop-filter:none !important; -webkit-backdrop-filter:none !important; will-change:auto !important; }
+  body.perf .tab-ghost{ box-shadow:none; }
+
+  /* --- Vue scindée : deux pages côte à côte --- */
+  body.dt-open{ --sp-x0:var(--dt-w,480px); }
+  #sp-divider, .sp-hl, #sp-drop{ display:none; }
+  body.split-on #content > webview.sp-a{ left:var(--sp-x0,0px); width:calc((100% - var(--sp-x0,0px)) * var(--sp-r,.5) - 3px); }
+  body.split-on #content > webview.sp-b{ left:calc(var(--sp-x0,0px) + (100% - var(--sp-x0,0px)) * var(--sp-r,.5) + 3px); width:calc((100% - var(--sp-x0,0px)) * (1 - var(--sp-r,.5)) - 3px); }
+  body.split-on #sp-divider{ display:block; position:absolute; top:0; bottom:0; width:6px; z-index:20; cursor:col-resize; touch-action:none; background:var(--pink-line); transition:background .12s;
+    left:calc(var(--sp-x0,0px) + (100% - var(--sp-x0,0px)) * var(--sp-r,.5) - 3px); }
+  body.split-on #sp-divider:hover, body.sp-resizing #sp-divider{ background:var(--pink); }
+  body.split-on .sp-hl{ display:block; position:absolute; top:0; height:2px; z-index:20; pointer-events:none; background:transparent; }
+  body.split-on .sp-hl.focus{ background:var(--pink); }
+  body.split-on #sp-hl-a{ left:var(--sp-x0,0px); width:calc((100% - var(--sp-x0,0px)) * var(--sp-r,.5) - 3px); }
+  body.split-on #sp-hl-b{ left:calc(var(--sp-x0,0px) + (100% - var(--sp-x0,0px)) * var(--sp-r,.5) + 3px); width:calc((100% - var(--sp-x0,0px)) * (1 - var(--sp-r,.5)) - 3px); }
+  .sp-btns{ position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); display:flex; flex-direction:column; gap:6px; opacity:.55; transition:opacity .12s; }
+  #sp-divider:hover .sp-btns{ opacity:1; }
+  .sp-btn{ width:22px; height:22px; border-radius:50%; border:1px solid var(--pink-line); background:var(--card); color:var(--accent-text); font-size:13px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; box-shadow:0 1px 4px rgba(0,0,0,.15); }
+  .sp-btn:hover{ background:var(--pink-pale); }
+  body.sp-resizing, body.sp-resizing *{ cursor:col-resize !important; }
+  body.sp-resizing #content > webview{ pointer-events:none; }
+  #sp-drop{ position:absolute; top:0; bottom:0; z-index:40; pointer-events:none; opacity:0; align-items:center; justify-content:center; background:rgba(217,121,159,.22); border:2px dashed var(--pink-dark); border-radius:6px; margin:6px; transition:opacity .12s; }
+  #sp-drop.show{ display:flex; opacity:1; }
+  #sp-drop.left{ left:var(--sp-x0,0px); width:calc((100% - var(--sp-x0,0px)) / 2 - 12px); }
+  #sp-drop.right{ left:calc(var(--sp-x0,0px) + (100% - var(--sp-x0,0px)) / 2); width:calc((100% - var(--sp-x0,0px)) / 2 - 12px); }
+  #sp-drop span{ background:var(--card); color:var(--accent-text); font-size:13px; font-weight:600; padding:8px 14px; border-radius:999px; box-shadow:0 2px 10px rgba(0,0,0,.18); }
+  .tab.split-member{ box-shadow:inset 0 -3px 0 rgba(255,255,255,.7); }
+  .tab.split-member.active{ box-shadow:inset 0 -3px 0 var(--pink); }
+  .tab.split-visible:not(.active){ background:var(--paper); color:var(--ink); opacity:.8; }
+
   /* --- Recherche dans la page --- */
   #findbar{ position:absolute; top:8px; right:16px; z-index:40; display:none; align-items:center; gap:4px; background:var(--card); border:1px solid var(--pink-line); border-radius:12px; padding:5px 6px 5px 10px; box-shadow:0 8px 22px rgba(0,0,0,0.18); }
   #findbar.open{ display:flex; }
@@ -447,6 +492,7 @@
     <button class="nav-btn" id="btn-history" title="Historique (Ctrl+H)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></button>
     <button class="nav-btn" id="btn-extensions" title="Extensions"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M10 4a2 2 0 1 1 4 0v1h4a1 1 0 0 1 1 1v4h-1a2 2 0 1 0 0 4h1v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-4h1a2 2 0 1 0 0-4H5V6a1 1 0 0 1 1-1h4V4z"/></svg></button>
     <button class="nav-btn" id="btn-vault" title="Mots de passe"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2.5 2.5M14 9l2 2"/></svg></button>
+    <button class="nav-btn" id="btn-split" title="Vue scindée : afficher deux pages côte à côte (Ctrl+Maj+S)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M12 5v14"/></svg></button>
     <button class="nav-btn" id="btn-pip" title="Détacher la vidéo (Ctrl+Maj+P)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><rect x="12" y="11.5" width="7" height="5" rx="1.2" fill="currentColor" stroke="none"/></svg></button>
     <button class="nav-btn" id="btn-downloads" title="Téléchargements (Ctrl+J)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4"/><path d="M5 18h14"/></svg><span class="dl-badge"></span></button>
     <div id="ext-icons"></div>
@@ -454,10 +500,20 @@
     <button class="nav-btn" id="btn-settings" title="Paramètres"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a7.8 7.8 0 000-3l2-1.5-2-3.4-2.3.9a7.8 7.8 0 00-2.6-1.5L14 2.5h-4l-.5 2.5a7.8 7.8 0 00-2.6 1.5l-2.3-.9-2 3.4 2 1.5a7.8 7.8 0 000 3l-2 1.5 2 3.4 2.3-.9a7.8 7.8 0 002.6 1.5l.5 2.6h4l.5-2.6a7.8 7.8 0 002.6-1.5l2.3.9 2-3.4z"/></svg></button>
   </div>
 
+  <div id="tab-preview"><div id="tp-thumb"></div><div id="tp-info"><div id="tp-title"></div><div id="tp-host"></div><div id="tp-meta"><span id="tp-ram"></span><span id="tp-state"></span></div></div></div>
   <div id="quickbar" class="empty"></div>
   <div id="credbar"></div>
 
   <div id="content">
+    <div class="sp-hl" id="sp-hl-a"></div>
+    <div class="sp-hl" id="sp-hl-b"></div>
+    <div id="sp-divider" title="Glisser pour redimensionner · double-clic : 50/50">
+      <div class="sp-btns">
+        <button class="sp-btn" id="sp-swap" title="Inverser les deux pages">⇄</button>
+        <button class="sp-btn" id="sp-close" title="Quitter la vue scindée">×</button>
+      </div>
+    </div>
+    <div id="sp-drop"><span></span></div>
     <div id="dt-pane">
       <div id="dt-head"><span>Outils de développement</span><button id="dt-close" title="Fermer (F12)">×</button></div>
       <div id="dt-body"></div>
@@ -594,6 +650,14 @@
           </select>
         </div>
         <div class="settings-row">
+          <div><div class="settings-label">Mode performance</div><div class="settings-desc">Retire les flous et ombres coûteux, plafonne les animations de Pure à 30 FPS, coupe le défilement lissé et les animations des sites, désactive le correcteur orthographique. Le défilement et les sites demandent un redémarrage.</div></div>
+          <div class="toggle" id="toggle-perf"></div>
+        </div>
+        <div class="settings-row">
+          <div><div class="settings-label">Figer les onglets en arrière-plan</div><div class="settings-desc">Un onglet inactif est figé après 20 s (processeur à zéro, sauf s'il joue du son), puis mis en veille après 10 min pour libérer sa mémoire. Désactive si un site de messagerie rate des notifications.</div></div>
+          <div class="toggle" id="toggle-freeze"></div>
+        </div>
+        <div class="settings-row">
           <div><div class="settings-label">Widgets du Menu Pure</div><div class="settings-desc">Pages récentes, tâches, notes, minuteur et compteur Pure Shield.</div></div>
           <div class="toggle" id="toggle-widgets"></div>
         </div>
@@ -712,6 +776,7 @@ if (IS_PRIVATE) {
 }
 
 let tabs = [], activeId = null, nextId = 1;
+let prevTabId = null, split = null;   // vue scindée : { a: onglet de gauche, b: onglet de droite, ratio }
 let menuOpen = false, lastTabId = null;   // Menu Pure : vue à part, pas un onglet
 let historyCache = [], bookmarksCache = [], bookmarkUrls = new Set();
 let shortcutsCache = [], hiddenTop = [];
@@ -906,9 +971,12 @@ window.addEventListener('blur', hideContextMenu);
 /* ---------- Animations (cadence réglable dans les Paramètres) ---------- */
 const ANIM_FPS_VALUES = [0, 30, 60, 120, 999];   // 0 = désactivées, 999 = cadence de l'écran
 let ANIM_FPS = 60;
+let PERF_MODE = true, FREEZE_TABS = true;     // réglages « Mode performance » / « Figer les onglets »
+let animPref = 60;
 function setAnimFps(v) {
   v = Number(v);
-  ANIM_FPS = ANIM_FPS_VALUES.includes(v) ? v : 60;
+  animPref = ANIM_FPS_VALUES.includes(v) ? v : 60;
+  ANIM_FPS = (PERF_MODE && animPref > 30) ? 30 : animPref;
   document.body.classList.toggle('no-anim', ANIM_FPS === 0);
 }
 // Intervalle minimal entre deux images (marge de 2 ms pour absorber la gigue de requestAnimationFrame)
@@ -1003,6 +1071,210 @@ new MutationObserver((records) => {
   });
 }).observe(content, { subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
 
+/* ---------- Vue scindée : deux pages côte à côte ---------- */
+// On glisse un onglet sur le bord gauche ou droit de la page : il s'affiche à côté de la page actuelle.
+// Le split reste mémorisé : cliquer sur un autre onglet l'affiche seul, recliquer sur l'un des deux ramène les deux pages.
+const SPLIT_EDGE = 0.3, SPLIT_MIN = 0.2, SPLIT_MAX = 0.8;
+const spDivider = $('sp-divider'), spDrop = $('sp-drop'), spHlA = $('sp-hl-a'), spHlB = $('sp-hl-b'), btnSplit = $('btn-split');
+
+function visibleSplit() { return split && (activeId === split.a || activeId === split.b) ? split : null; }
+function isShownInSplit(id) { const sp = visibleSplit(); return !!sp && (sp.a === id || sp.b === id); }
+
+function applySplitLayout() {
+  const sp = visibleSplit();
+  document.body.classList.toggle('split-on', !!sp);
+  content.style.setProperty('--sp-r', String(split ? split.ratio : 0.5));
+  tabs.forEach(t => {
+    const member = !!split && (t.id === split.a || t.id === split.b);
+    t.tabEl.classList.toggle('split-member', member);
+    t.tabEl.classList.toggle('split-visible', !!sp && member);
+    if (t.webview) {
+      t.webview.classList.toggle('sp-a', !!sp && t.id === sp.a);
+      t.webview.classList.toggle('sp-b', !!sp && t.id === sp.b);
+    }
+  });
+  spHlA.classList.toggle('focus', !!sp && activeId === sp.a);
+  spHlB.classList.toggle('focus', !!sp && activeId === sp.b);
+  btnSplit.classList.toggle('toggle-on', !!sp);
+  btnSplit.title = sp ? 'Quitter la vue scindée (Ctrl+Maj+S)' : 'Vue scindée : afficher deux pages côte à côte (Ctrl+Maj+S)';
+}
+
+// Avec quelle page l'onglet sera-t-il affiché ? La page actuelle, sinon la précédente, sinon une voisine.
+function splitBaseFor(id) {
+  if (tabs.length < 2) return null;
+  if (activeId && activeId !== id && tabs.some(t => t.id === activeId)) return activeId;
+  if (prevTabId && prevTabId !== id && tabs.some(t => t.id === prevTabId)) return prevTabId;
+  const i = tabs.findIndex(t => t.id === id);
+  const n = tabs[i + 1] || tabs[i - 1];
+  return n && n.id !== id ? n.id : null;
+}
+
+function setSplit(a, b, focusId) {
+  if (a === b || !tabs.some(t => t.id === a) || !tabs.some(t => t.id === b)) return;
+  const old = split;
+  split = { a, b, ratio: old ? old.ratio : 0.5 };
+  if (old) [old.a, old.b].forEach(oid => { if (oid !== a && oid !== b) { const t = tabs.find(x => x.id === oid); if (t) scheduleSuspend(t); } });
+  activateTab(focusId);
+}
+
+function dropSplit(tabId, side, baseId) {
+  const sp = visibleSplit();
+  let other;
+  if (sp) {
+    const target = side === 'left' ? sp.a : sp.b, rest = side === 'left' ? sp.b : sp.a;
+    other = tabId === rest ? target : rest;          // déposer l'onglet de l'autre côté = les échanger
+  } else other = baseId;
+  if (!other || other === tabId) return;
+  setSplit(side === 'left' ? tabId : other, side === 'left' ? other : tabId, tabId);
+}
+function splitTabTo(id, side) { dropSplit(id, side, splitBaseFor(id)); }
+
+function exitSplit() {
+  if (!split) return;
+  const old = split;
+  split = null;
+  if (activeId) activateTab(activeId); else applySplitLayout();
+  [old.a, old.b].forEach(oid => { const t = tabs.find(x => x.id === oid); if (t && t.id !== activeId) scheduleSuspend(t); });
+}
+function swapSplit() {
+  if (!split) return;
+  split = { a: split.b, b: split.a, ratio: 1 - split.ratio };
+  applySplitLayout();
+}
+function toggleSplit() {
+  if (visibleSplit()) { exitSplit(); return; }
+  if (!activeId) return;
+  const base = splitBaseFor(activeId);
+  if (base) setSplit(activeId, base, activeId);
+}
+// Cliquer dans une des deux pages la rend active (adresse, recherche, raccourcis suivent cette page)
+function focusPaneOf(tab) { if (tab && tab.id !== activeId && isShownInSplit(tab.id)) activateTab(tab.id); }
+
+function showDropZone(zone) {
+  spDrop.className = zone ? 'show ' + zone : '';
+  if (zone) {
+    const rep = !!visibleSplit();
+    spDrop.querySelector('span').textContent = rep ? (zone === 'left' ? 'Afficher à gauche' : 'Afficher à droite') : (zone === 'left' ? 'Scinder : à gauche' : 'Scinder : à droite');
+  }
+}
+
+(function splitDividerInit() {
+  $('sp-swap').addEventListener('click', swapSplit);
+  $('sp-close').addEventListener('click', exitSplit);
+  const stop = (e) => e.stopPropagation();
+  ['pointerdown', 'dblclick'].forEach(ev => { $('sp-swap').addEventListener(ev, stop); $('sp-close').addEventListener(ev, stop); });
+  spDivider.addEventListener('pointerdown', (e) => {
+    if (!split || e.button !== 0) return;
+    e.preventDefault();
+    try { spDivider.setPointerCapture(e.pointerId); } catch (err) { /* ignoré */ }
+    document.body.classList.add('sp-resizing');
+    const move = (ev) => {
+      if (!split) return;
+      const r = content.getBoundingClientRect();
+      const x0 = document.body.classList.contains('dt-open') ? $('dt-pane').offsetWidth : 0;
+      split.ratio = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, (ev.clientX - r.left - x0) / Math.max(1, r.width - x0)));
+      content.style.setProperty('--sp-r', String(split.ratio));
+    };
+    const up = () => {
+      spDivider.removeEventListener('pointermove', move);
+      spDivider.removeEventListener('pointerup', up);
+      spDivider.removeEventListener('pointercancel', up);
+      document.body.classList.remove('sp-resizing');
+    };
+    spDivider.addEventListener('pointermove', move);
+    spDivider.addEventListener('pointerup', up);
+    spDivider.addEventListener('pointercancel', up);
+  });
+  spDivider.addEventListener('dblclick', () => { if (split) { split.ratio = 0.5; applySplitLayout(); } });
+  btnSplit.addEventListener('click', toggleSplit);
+})();
+
+/* ---------- Aperçu d'onglet au survol : miniature + mémoire utilisée ---------- */
+const tabPreview = $('tab-preview'), tpThumb = $('tp-thumb'), tpTitle = $('tp-title'), tpHost = $('tp-host'), tpRam = $('tp-ram'), tpState = $('tp-state');
+let tpTab = null, tpShowTimer = null, tpRamTimer = null;
+
+// Capture réduite de la page (JPEG ~15 Ko, gardée en mémoire seulement)
+async function captureThumb(tab) {
+  const wv = tab && tab.webview;
+  if (!wv || tab.frozen) return;
+  try {
+    const img = await wv.capturePage();
+    if (!img || img.isEmpty()) return;          // page déjà masquée : on garde l'ancienne miniature
+    const sz = img.getSize();
+    if (!sz.width || !sz.height) return;
+    const small = img.resize({ width: 480, quality: 'good' });
+    tab.thumb = 'data:image/jpeg;base64,' + small.toJPEG(62).toString('base64');
+    if (tpTab === tab && tabPreview.classList.contains('show')) renderPreview(tab);
+  } catch (e) { /* page pas prête */ }
+}
+
+function fmtRam(kb) {
+  if (kb == null) return '—';
+  const mb = kb / 1024;
+  return mb >= 1024 ? (mb / 1024).toFixed(1).replace('.', ',') + ' Go' : Math.round(mb) + ' Mo';
+}
+function tabStateLabel(tab) {
+  if (!tab.webview) return 'En veille · mémoire libérée';
+  if (tab.id === activeId) return 'Active';
+  if (isShownInSplit(tab.id)) return 'Vue scindée';
+  if (tab.frozen) return 'Figée';
+  return 'En arrière-plan';
+}
+function renderPreview(tab) {
+  tpTitle.textContent = tab.title || tab.url || 'Sans titre';
+  tpHost.textContent = hostOf(tab.url) || tab.url || '';
+  tpState.textContent = tabStateLabel(tab);
+  tpThumb.textContent = '';
+  if (tab.thumb) { const im = document.createElement('img'); im.src = tab.thumb; tpThumb.appendChild(im); }
+  else { const d = document.createElement('div'); d.className = 'tp-none'; d.textContent = tab.webview ? 'Aperçu en cours…' : 'Pas d’aperçu : page en veille'; tpThumb.appendChild(d); }
+}
+async function refreshPreviewRam(tab) {
+  if (tpTab !== tab) return;
+  if (!tab.webview) { tpRam.textContent = '0 Mo'; return; }
+  let id;
+  try { id = tab.webview.getWebContentsId(); } catch (e) { tpRam.textContent = '—'; return; }
+  try {
+    const r = await ipcRenderer.invoke('tabs:memory', [id]);
+    if (tpTab === tab) tpRam.textContent = fmtRam(r ? r[id] : null);
+  } catch (e) { if (tpTab === tab) tpRam.textContent = '—'; }
+}
+function placePreview(el) {
+  const r = el.getBoundingClientRect(), w = 248;
+  tabPreview.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8)) + 'px';
+  tabPreview.style.top = (r.bottom + 6) + 'px';
+}
+function showPreview(tab) {
+  if (drag && drag.active) return;
+  tpTab = tab;
+  renderPreview(tab);
+  tpRam.textContent = '…';
+  placePreview(tab.tabEl);
+  tabPreview.classList.add('show');
+  refreshPreviewRam(tab);
+  clearInterval(tpRamTimer);
+  tpRamTimer = setInterval(() => { if (tpTab) { refreshPreviewRam(tpTab); tpState.textContent = tabStateLabel(tpTab); } }, 1500);
+  if (tab.webview && (tab.id === activeId || isShownInSplit(tab.id))) captureThumb(tab);   // miniature fraîche si la page est visible
+}
+function hidePreview() {
+  clearTimeout(tpShowTimer); tpShowTimer = null;
+  clearInterval(tpRamTimer); tpRamTimer = null;
+  tpTab = null;
+  tabPreview.classList.remove('show');
+}
+function bindTabPreview(tabEl, id) {
+  tabEl.addEventListener('pointerenter', () => {
+    const tb = tabs.find(x => x.id === id);
+    if (!tb || (drag && drag.active)) return;
+    clearTimeout(tpShowTimer);
+    if (tabPreview.classList.contains('show')) { showPreview(tb); return; }   // déjà ouvert : on passe d'un onglet à l'autre sans délai
+    tpShowTimer = setTimeout(() => showPreview(tb), 450);
+  });
+  tabEl.addEventListener('pointerleave', hidePreview);
+  tabEl.addEventListener('pointerdown', hidePreview);
+}
+window.addEventListener('blur', hidePreview);
+document.addEventListener('contextmenu', hidePreview, true);
+
 /* ---------- Glisser-déposer des onglets : réordonner, ou détacher dans une nouvelle fenêtre ---------- */
 const DRAG_START_PX = 5, DETACH_ENTER_PX = 40, DETACH_LEAVE_PX = 20;
 let drag = null;
@@ -1010,7 +1282,7 @@ let drag = null;
 function onTabPointerDown(e, tab) {
   if (e.button !== 0 || drag) return;
   if (e.target.closest && e.target.closest('.tab-close')) return;
-  drag = { tab, startX: e.clientX, startY: e.clientY, px: e.clientX, py: e.clientY, active: false };
+  drag = { tab, startX: e.clientX, startY: e.clientY, px: e.clientX, py: e.clientY, active: false, baseId: splitBaseFor(tab.id) };
   window.addEventListener('pointermove', onDragMove);
   window.addEventListener('pointerup', onDragEnd);
   window.addEventListener('pointercancel', cancelDrag);
@@ -1038,7 +1310,10 @@ function onDragMove(e) {
 }
 
 function beginDrag(d) {
-  if (activeId !== d.tab.id) activateTab(d.tab.id);
+  d.splitOK = !!visibleSplit() || !!d.baseId;      // on peut déposer l'onglet sur le bord gauche/droit de la page
+  d.content = content.getBoundingClientRect();
+  d.zone = null;
+  if (activeId !== d.tab.id && !d.splitOK) activateTab(d.tab.id);   // sinon la page actuelle reste visible pour le dépôt
   d.gap = tabGap();
   d.strip = tabstrip.getBoundingClientRect();
   d.items = tabs.map(t => { const r = t.tabEl.getBoundingClientRect(); return { tab: t, el: t.tabEl, left: r.left, width: r.width, cur: 0 }; });
@@ -1075,22 +1350,35 @@ function dragFrame() {
 function updateDrag(d, dt) {
   const me = d.me, n = d.items.length, s = d.strip;
   // Détachement : on tire l'onglet hors de la barre (hystérésis pour éviter les clignotements)
-  const out = Math.max(s.top - d.py, d.py - s.bottom, -d.px, d.px - window.innerWidth);
-  if (d.canDetach) {
-    if (!d.detached && out > DETACH_ENTER_PX) { d.detached = true; d.ghost.classList.add('detaching'); }
-    else if (d.detached && out < DETACH_LEAVE_PX) { d.detached = false; d.ghost.classList.remove('detaching'); }
+  // Vue scindée : bord gauche ou droit de la page = zone de dépôt
+  let zone = null;
+  if (d.splitOK) {
+    const c = d.content;
+    if (d.py > c.top && d.py < c.bottom && d.px >= c.left && d.px <= c.right) {
+      const rel = (d.px - c.left) / c.width;
+      zone = rel < SPLIT_EDGE ? 'left' : rel > 1 - SPLIT_EDGE ? 'right' : null;
+    }
   }
+  if (zone !== d.zone) { d.zone = zone; showDropZone(zone); }
+  const out = Math.max(s.top - d.py, d.py - s.bottom, -d.px, d.px - window.innerWidth);
+  if (zone) d.detached = false;
+  else if (d.canDetach) {
+    if (!d.detached && out > DETACH_ENTER_PX) d.detached = true;
+    else if (d.detached && out < DETACH_LEAVE_PX) d.detached = false;
+  }
+  const floating = d.detached || !!zone;
+  d.ghost.classList.toggle('detaching', floating);
   let x, y;
-  if (d.detached) { x = d.px - d.grabX; y = d.py - d.height / 2; }
+  if (floating) { x = d.px - d.grabX; y = d.py - d.height / 2; }
   else {
     const minX = d.items[0].left, maxX = Math.max(minX, d.items[n - 1].left + d.items[n - 1].width - me.width);
     x = Math.min(Math.max(d.px - d.grabX, minX), maxX); y = d.top;
   }
   d.gx = x; d.gy = y;
-  d.ghost.style.transform = 'translate(' + x + 'px,' + y + 'px)' + (d.detached ? ' scale(1.03)' : '');
+  d.ghost.style.transform = 'translate(' + x + 'px,' + y + 'px)' + (floating ? ' scale(1.03)' : '');
 
   // Position visée : nombre d'autres onglets dont le milieu est à gauche du centre de l'onglet tiré
-  if (d.detached) d.to = -1;
+  if (floating) d.to = -1;
   else {
     const cx = x + me.width / 2;
     let idx = 0;
@@ -1102,6 +1390,7 @@ function updateDrag(d, dt) {
     if (i === d.from) return;
     let target = 0;
     if (d.detached) target = i > d.from ? -shift : 0;
+    else if (d.zone) target = 0;
     else if (d.to > d.from && i > d.from && i <= d.to) target = -shift;
     else if (d.to < d.from && i >= d.to && i < d.from) target = shift;
     if (ANIM_FPS === 0) it.cur = target;
@@ -1115,6 +1404,7 @@ function updateDrag(d, dt) {
 
 function endDragVisuals(d) {
   document.body.classList.remove('tab-dragging');
+  showDropZone(null);
   d.me.el._noClick = true;                       // le relâchement ne doit pas compter comme un clic sur l'onglet
   setTimeout(() => { d.me.el._noClick = false; }, 30);
 }
@@ -1141,11 +1431,21 @@ function onDragEnd(e) {
   if (tabs.length !== d.items.length || !d.items.every((it, i) => tabs[i] === it.tab)) { drag = d; cancelDrag(); return; }
   updateDrag(d, 16);
   endDragVisuals(d);
-  if (d.detached && d.canDetach) finishDetach(d); else finishReorder(d);
+  if (d.zone) finishSplitDrop(d);
+  else if (d.detached && d.canDetach) finishDetach(d);
+  else finishReorder(d);
+}
+
+function finishSplitDrop(d) {
+  d.ghost.remove();
+  d.items.forEach(it => { it.el.style.transform = ''; });
+  d.me.el.classList.remove('drag-origin');
+  dropSplit(d.tab.id, d.zone, d.baseId);
 }
 
 function finishReorder(d) {
   const me = d.me, from = d.from, to = d.to;
+  if (activeId !== d.tab.id) activateTab(d.tab.id);
   const before = d.items.map(it => it.el.getBoundingClientRect().left);   // positions réelles, transformations comprises
   if (to >= 0 && to !== from) {
     tabs.splice(from, 1); tabs.splice(to, 0, me.tab);
@@ -1205,6 +1505,7 @@ function createTab(url, opts) {
     if (e.target.classList.contains('tab-close')) closeTab(id); else activateTab(id);
   });
   tabEl.addEventListener('pointerdown', (e) => { const tb = tabs.find(x => x.id === id); if (tb) onTabPointerDown(e, tb); });
+  bindTabPreview(tabEl, id);
   tabstrip.insertBefore(tabEl, newTabBtn);
   tabEl.addEventListener('contextmenu', (e) => {
     e.preventDefault();
@@ -1215,13 +1516,16 @@ function createTab(url, opts) {
       { label: 'Actualiser', disabled: !tb.webview, action: () => { if (tb.webview) tb.webview.reload(); } },
       { label: "Dupliquer l'onglet", disabled: !tb.url, action: () => createTab(tb.url) },
       { label: 'Détacher dans une nouvelle fenêtre', disabled: !tb.url || tabs.length < 2, action: () => detachTabById(id) },
+      { label: 'Vue scindée : afficher à droite', disabled: !splitBaseFor(id), action: () => splitTabTo(id, 'right') },
+      { label: 'Vue scindée : afficher à gauche', disabled: !splitBaseFor(id), action: () => splitTabTo(id, 'left') },
+      ...(split && (split.a === id || split.b === id) ? [{ label: 'Quitter la vue scindée', action: () => exitSplit() }] : []),
       { separator: true },
       { label: "Fermer l'onglet", action: () => closeTab(id) },
       { label: 'Fermer les autres onglets', disabled: tabs.length < 2, danger: true, action: () => tabs.filter(x => x.id !== id).forEach(x => closeTab(x.id)) }
     ]);
   });
 
-  const tab = { id, tabEl, webview: null, title: opts.title || hostOf(url) || 'Chargement…', url: url, favicon: opts.favicon || null, blockedOnPage: 0, suspendTimer: null, pw: { has: false, origin: '', pending: null, prompt: null, fillDismissed: false } };
+  const tab = { id, tabEl, webview: null, title: opts.title || hostOf(url) || 'Chargement…', url: url, favicon: opts.favicon || null, blockedOnPage: 0, suspendTimer: null, freezeTimer: null, frozen: false, thumb: null, pw: { has: false, origin: '', pending: null, prompt: null, fillDismissed: false } };
   tabs.push(tab);
   if (url && !opts.lazy) attachWebview(tab, url);
   if (!opts.skipActivate) activateTab(id);
@@ -1238,6 +1542,7 @@ function attachWebview(tab, url) {
   content.appendChild(webview);
   tab.webview = webview;
 
+  webview.addEventListener('did-stop-loading', () => { if (tab.id === activeId) { clearTimeout(tab.thumbTimer); tab.thumbTimer = setTimeout(() => captureThumb(tab), 1200); } });
   webview.addEventListener('did-navigate', (e) => {
     tab.url = e.url;
     tab.pw.has = false; tab.pw.prompt = null; tab.pw.fillDismissed = false;
@@ -1265,7 +1570,7 @@ function attachWebview(tab, url) {
     saveSession();
   });
   webview.addEventListener('ipc-message', (ev) => {
-    if (ev.channel === 'ui:hide-menus') { hideContextMenu(); closeSuggestions(); return; }
+    if (ev.channel === 'ui:hide-menus') { hideContextMenu(); closeSuggestions(); focusPaneOf(tab); return; }
     if (ev.channel === 'pip:request') { if (tab.id === activeId) togglePip(); return; }   // bouton « Détacher » affiché sur la vidéo
     onWebviewMessage(tab, ev.channel, ev.args && ev.args[0]);
   });
@@ -1274,7 +1579,7 @@ function attachWebview(tab, url) {
     findCount.textContent = ev.result.matches ? ev.result.activeMatchOrdinal + ' / ' + ev.result.matches : 'Aucun résultat';
   });
   webview.addEventListener('new-window', (ev) => createTab(ev.url));
-  webview.addEventListener('focus', hideContextMenu);
+  webview.addEventListener('focus', () => { hideContextMenu(); focusPaneOf(tab); });
 }
 
 async function recordVisit(url, title, favicon) {
@@ -1315,16 +1620,52 @@ function navigateActiveTab(url) {
   closeSuggestions();
 }
 
-const TAB_SUSPEND_MS = 10 * 60 * 1000; // onglet inactif 10 min -> webview libérée (mémoire)
+const TAB_SUSPEND_MS = 10 * 60 * 1000;   // onglet inactif 10 min -> webview libérée (mémoire)
+const TAB_FREEZE_MS = 20 * 1000;         // onglet inactif 20 s -> page figée (processeur ~0)
+let pipTabId = null;                     // onglet dont la vidéo est détachée (jamais gelé ni mis en veille)
+
+function tabIsBusy(tab) {
+  // Un onglet visible, inspecté, détaché en PiP, qui joue du son ou qui charge ne doit pas être figé
+  if (tab.id === activeId || isShownInSplit(tab.id) || (dt.open && dt.tabId === tab.id) || pipTabId === tab.id) return true;
+  try { if (tab.webview.isCurrentlyAudible()) return true; } catch (e) { return true; }
+  return false;
+}
+function freezeTab(tab) {
+  if (!tab.webview || tab.frozen) return;
+  let id;
+  try { id = tab.webview.getWebContentsId(); if (tab.webview.isLoading()) return false; } catch (e) { return false; }
+  tab.frozen = true;
+  ipcRenderer.invoke('tab:freeze', { id, frozen: true }).then(ok => { if (!ok && tab.frozen) tab.frozen = false; }, () => { tab.frozen = false; });
+  return true;
+}
+function unfreezeTab(tab) {
+  clearTimeout(tab.freezeTimer);
+  if (!tab.frozen) return;
+  tab.frozen = false;
+  try { ipcRenderer.invoke('tab:freeze', { id: tab.webview.getWebContentsId(), frozen: false }); } catch (e) { /* webview déjà retirée */ }
+}
 
 function scheduleSuspend(tab) {
   clearTimeout(tab.suspendTimer);
+  clearTimeout(tab.freezeTimer);
   if (!tab.webview) return;
-  tab.suspendTimer = setTimeout(() => {
-    if (tab.id === activeId || !tab.webview) return;
+  if (FREEZE_TABS) {
+    const tryFreeze = () => {
+      if (!tab.webview || !FREEZE_TABS) return;
+      if (tabIsBusy(tab) || freezeTab(tab) === false) { if (tab.id !== activeId) tab.freezeTimer = setTimeout(tryFreeze, 10000); }
+    };
+    tab.freezeTimer = setTimeout(tryFreeze, TAB_FREEZE_MS);
+  }
+  const trySleep = () => {
+    if (!tab.webview) return;
+    if (tab.id === activeId) return;
+    if (tabIsBusy(tab)) { tab.suspendTimer = setTimeout(trySleep, 60000); return; }
+    clearTimeout(tab.freezeTimer);
+    tab.frozen = false;
     tab.webview.remove();
     tab.webview = null; // activateTab() le recréera paresseusement si besoin
-  }, TAB_SUSPEND_MS);
+  };
+  tab.suspendTimer = setTimeout(trySleep, TAB_SUSPEND_MS);
 }
 
 function syncBrand() { $('brand-logo').classList.toggle('active', homeEl.classList.contains('active')); }
@@ -1333,20 +1674,30 @@ function activateTab(id) {
   if (dt.open && dt.tabId !== id) closeDevTools();
   if (findBar.classList.contains('open') && id !== activeId) closeFind();
   const prev = tabs.find(t => t.id === activeId);
-  if (prev && prev.id !== id) scheduleSuspend(prev);
+  if (prev && prev.id !== id) { captureThumb(prev); prevTabId = prev.id; scheduleSuspend(prev); }
   const tab = tabs.find(t => t.id === id);
   if (!tab) return;
   menuOpen = false;
   activeId = id;
   lastTabId = id;
   clearTimeout(tab.suspendTimer);
+  unfreezeTab(tab);
   if (!tab.webview) attachWebview(tab, tab.url);
+  const sp = visibleSplit();            // les deux pages scindées restent affichées tant que l'une d'elles est active
+  if (sp) [sp.a, sp.b].forEach(tid => {
+    const t = tabs.find(x => x.id === tid);
+    if (!t) return;
+    clearTimeout(t.suspendTimer);
+    unfreezeTab(t);
+    if (!t.webview) attachWebview(t, t.url);
+  });
   tabs.forEach(t => {
     const isActive = t.id === id;
     t.tabEl.classList.toggle('active', isActive);
-    if (t.webview) t.webview.classList.toggle('active', isActive);
+    if (t.webview) t.webview.classList.toggle('active', isActive || (!!sp && (t.id === sp.a || t.id === sp.b)));
   });
   closePanels();
+  applySplitLayout();
   updateToolbar(tab);
   refreshCredbar(tab);
 }
@@ -1357,10 +1708,11 @@ function openMenu(opts) {
   if (dt.open) closeDevTools();
   if (findBar.classList.contains('open')) closeFind();
   const prev = tabs.find(t => t.id === activeId);
-  if (prev) { lastTabId = prev.id; scheduleSuspend(prev); }
+  if (prev) { lastTabId = prev.id; captureThumb(prev); scheduleSuspend(prev); }
   activeId = null;
   menuOpen = true;
   tabs.forEach(t => { t.tabEl.classList.remove('active'); if (t.webview) t.webview.classList.remove('active'); });
+  applySplitLayout();
   closePanels();
   homeEl.classList.add('active');
   syncBrand();
@@ -1383,16 +1735,21 @@ function closeTab(id, opts) {
   const idx = tabs.findIndex(t => t.id === id);
   if (idx === -1) return;
   const tab = tabs[idx];
+  if (tpTab === tab) hidePreview();
+  let splitPartner = null;               // fermer une page scindée referme le split
+  if (split && (split.a === id || split.b === id)) { splitPartner = split.a === id ? split.b : split.a; split = null; }
+  if (prevTabId === id) prevTabId = null;
   if (dt.open && dt.tabId === id) closeDevTools();
   if (!IS_PRIVATE && !opts.detached && tab.url) { closedTabs.push({ url: tab.url, title: tab.title, favicon: tab.favicon }); if (closedTabs.length > 20) closedTabs.shift(); }
-  clearTimeout(tab.suspendTimer);
+  clearTimeout(tab.suspendTimer); clearTimeout(tab.freezeTimer);
   if (opts.instant) tab.tabEl.remove(); else animateTabOut(tab.tabEl);
   if (tab.webview) tab.webview.remove();
   tabs.splice(idx, 1);
   if (lastTabId === id) lastTabId = null;
   saveSession();
   if (tabs.length === 0) { openMenu(); return; }
-  if (activeId === id) activateTab((tabs[idx] || tabs[idx - 1]).id);
+  if (activeId === id) activateTab(tabs.some(t => t.id === splitPartner) ? splitPartner : (tabs[idx] || tabs[idx - 1]).id);
+  else applySplitLayout();
 }
 
 function updateToolbar(tab) {
@@ -2278,6 +2635,8 @@ async function renderSettingsPanel() {
   const t = $('toggle-startup');
   t.classList.toggle('on', settingsCache.launchAtStartup !== false);
   $('anim-select').value = String(ANIM_FPS_VALUES.includes(settingsCache.animFps) ? settingsCache.animFps : 60);
+  $('toggle-perf').classList.toggle('on', PERF_MODE);
+  $('toggle-freeze').classList.toggle('on', FREEZE_TABS);
   if (typeof refreshDefaultRow === 'function') refreshDefaultRow();
   if (typeof renderUpdate === 'function') renderUpdate();
 }
@@ -2300,6 +2659,26 @@ $('toggle-startup').addEventListener('click', async function () {
   this.classList.toggle('on', on);
   settingsCache = await ipcRenderer.invoke('settings:save', { launchAtStartup: on });
 });
+function applyPerfSettings(st) {
+  PERF_MODE = !(st && st.perfMode === false);
+  FREEZE_TABS = !(st && st.freezeTabs === false);
+  document.body.classList.toggle('perf', PERF_MODE);
+  setAnimFps(st ? st.animFps : 60);
+  if (!FREEZE_TABS) tabs.forEach(t => { clearTimeout(t.freezeTimer); unfreezeTab(t); });
+  else tabs.forEach(t => { if (t.webview && t.id !== activeId) scheduleSuspend(t); });
+}
+$('toggle-perf').addEventListener('click', async function () {
+  const on = !this.classList.contains('on');
+  this.classList.toggle('on', on);
+  settingsCache = await ipcRenderer.invoke('settings:save', { perfMode: on });
+  applyPerfSettings(settingsCache);
+});
+$('toggle-freeze').addEventListener('click', async function () {
+  const on = !this.classList.contains('on');
+  this.classList.toggle('on', on);
+  settingsCache = await ipcRenderer.invoke('settings:save', { freezeTabs: on });
+  applyPerfSettings(settingsCache);
+});
 $('anim-select').addEventListener('change', async (e) => {
   const v = Number(e.target.value);
   setAnimFps(v);
@@ -2308,8 +2687,8 @@ $('anim-select').addEventListener('change', async (e) => {
 // Réglage modifié dans une autre fenêtre Pure
 ipcRenderer.on('settings:anim', (e, v) => {
   setAnimFps(v);
-  if (settingsCache) settingsCache.animFps = ANIM_FPS;
-  const sel = $('anim-select'); if (sel) sel.value = String(ANIM_FPS);
+  if (settingsCache) settingsCache.animFps = animPref;
+  const sel = $('anim-select'); if (sel) sel.value = String(animPref);
 });
 $('settings-clear-history').addEventListener('click', async () => { historyCache = await ipcRenderer.invoke('store:clear-history'); });
 
@@ -2510,6 +2889,7 @@ function runShortcut(name) {
     case 'downloads': btnDownloads.click(); break;
     case 'private-window': ipcRenderer.invoke('window:open-private'); break;
     case 'pip': togglePip(); break;
+    case 'split': toggleSplit(); break;
     case 'zoom-in': zoomBy(1); break;
     case 'zoom-out': zoomBy(-1); break;
     case 'zoom-reset': if (wv) wv.setZoomFactor(1); break;
@@ -2834,11 +3214,12 @@ async function togglePip() {
   pipBusy = true;
   try {
     const r = await ipcRenderer.invoke('pip:open', id);
+    if (r && r.ok) pipTabId = activeId;
     if (!r || !r.ok) showPipNote(PIP_ERRORS[r && r.reason] || PIP_ERRORS['no-video']);
   } finally { pipBusy = false; }
 }
 btnPip.addEventListener('click', togglePip);
-ipcRenderer.on('pip:state', (e, st) => { btnPip.classList.toggle('active', !!(st && st.open)); });
+ipcRenderer.on('pip:state', (e, st) => { btnPip.classList.toggle('active', !!(st && st.open)); if (!(st && st.open)) pipTabId = null; });
 
 /* ---------- Mises à jour intégrées ---------- */
 let updateState = null, dismissedUpdate = null;
@@ -2889,7 +3270,7 @@ ipcRenderer.invoke('update:get-state').then(st => { updateState = st; renderUpda
 (async function init() {
   const st = await ipcRenderer.invoke('settings:get');
   settingsCache = st;
-  setAnimFps(st.animFps);
+  applyPerfSettings(st);
   tasks = Array.isArray(st.tasks) ? st.tasks.slice() : [];
   applyAccentColor(st.accentColor);
   applyHomeLook();
