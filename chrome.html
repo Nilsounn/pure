@@ -142,6 +142,17 @@
     background:var(--pink-deep); display:none;
   }
   #btn-downloads.active .dl-badge{ display:block; }
+  .popover.dl-pop{ width:340px; }
+  .dl-pop-head{ display:flex; align-items:center; justify-content:space-between; padding:12px 14px 6px; font-size:13px; font-weight:700; color:var(--ink); }
+  .dl-pop-list{ max-height:320px; overflow-y:auto; padding:0 10px; }
+  .dl-pop-list .dl-row{ padding:9px 4px; }
+  .dl-pop-list .dl-row:last-child{ border-bottom:none; }
+  .dl-pop-empty{ padding:18px 14px; font-size:12.5px; color:var(--ink-soft); text-align:center; }
+  .dl-pop-foot{ display:block; width:100%; padding:11px 14px; border:none; border-top:1px solid var(--pink-line); background:var(--pink-pale); color:var(--accent-text); font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; }
+  .dl-pop-foot:hover{ filter:brightness(.97); }
+  .dl-row.draggable{ cursor:grab; }
+  .dl-row.draggable:active{ cursor:grabbing; }
+  #adopt-marker{ position:fixed; width:3px; height:30px; border-radius:2px; background:var(--pink-deep); z-index:120; pointer-events:none; display:none; box-shadow:0 0 0 2px rgba(255,255,255,.35); }
   #btn-private{ display:flex; align-items:center; gap:5px; padding:0 10px; width:auto; border-radius:14px; font-size:12px; font-weight:600; }
   #private-pill{ display:none; align-items:center; gap:6px; padding:5px 12px; border-radius:14px; background:var(--pink-pale); color:var(--ink); font-size:12px; font-weight:600; flex-shrink:0; }
   body.private #private-pill{ display:flex; }
@@ -712,6 +723,7 @@
   </div>
 </div>
 <div id="popover-back"></div>
+<div id="adopt-marker"></div>
 <div id="ctx-menu"></div>
 <div id="modal-back">
   <form class="modal" id="shortcut-form">
@@ -1321,7 +1333,7 @@ function beginDrag(d) {
   const r = d.me.el.getBoundingClientRect();
   d.top = r.top; d.height = r.height; d.grabX = d.startX - r.left;
   d.detached = false;
-  d.canDetach = tabs.length > 1 && !!d.tab.url;
+  d.canDetach = !!d.tab.url;     // seul dans sa fenêtre, l'onglet peut quand même être déposé sur un autre Pure
   d.last = 0;
   const ghost = d.me.el.cloneNode(true);
   ghost.removeAttribute('style');
@@ -1368,6 +1380,7 @@ function updateDrag(d, dt) {
   }
   const floating = d.detached || !!zone;
   d.ghost.classList.toggle('detaching', floating);
+  if (d.detached) { sendDragHover(d, true); d.hovering = true; } else if (d.hovering) { sendDragHover(d, false); d.hovering = false; lastHoverSent = 0; }
   let x, y;
   if (floating) { x = d.px - d.grabX; y = d.py - d.height / 2; }
   else {
@@ -1403,6 +1416,7 @@ function updateDrag(d, dt) {
 }
 
 function endDragVisuals(d) {
+  if (d.hovering) { ipcRenderer.send('tab:drag-hover', false); d.hovering = false; }
   document.body.classList.remove('tab-dragging');
   showDropZone(null);
   d.me.el._noClick = true;                       // le relâchement ne doit pas compter comme un clic sur l'onglet
@@ -1480,7 +1494,11 @@ function finishDetach(d) {
       if (Math.abs(delta) > 0.5) flipTab(it.el, delta);
     });
   };
-  ipcRenderer.invoke('window:detach-tab', { url: tab.url, title: tab.title, favicon: tab.favicon }).then(ok => settle(!!ok), () => settle(false));
+  const single = tabs.length === 1;
+  ipcRenderer.invoke('window:detach-tab', { url: tab.url, title: tab.title, favicon: tab.favicon, drop: true, single }).then(ok => {
+    settle(!!ok);
+    if (ok && single) ipcRenderer.send('window:close');   // son seul onglet est parti vers un autre Pure : cette fenêtre n'a plus de raison d'être
+  }, () => settle(false));
 }
 
 // Menu contextuel de l'onglet : même résultat que de le tirer hors de la barre
@@ -1488,6 +1506,50 @@ function detachTabById(id) {
   const tb = tabs.find(x => x.id === id);
   if (!tb || !tb.url || tabs.length < 2) return;
   ipcRenderer.invoke('window:detach-tab', { url: tb.url, title: tb.title, favicon: tb.favicon }).then(ok => { if (ok) closeTab(id, { detached: true }); });
+}
+
+/* ---------- Un onglet venu d'une autre fenêtre Pure se dépose sur la barre d'onglets ---------- */
+const adoptMarker = $('adopt-marker');
+function adoptSlot(x, exclude) {
+  const list = tabs.filter(t => t !== exclude);
+  let index = list.length;
+  for (let i = 0; i < list.length; i++) {
+    const r = list[i].tabEl.getBoundingClientRect();
+    if (x < r.left + r.width / 2) { index = i; break; }
+  }
+  let mx = 10;
+  if (list.length) mx = index < list.length ? list[index].tabEl.getBoundingClientRect().left - 3 : list[list.length - 1].tabEl.getBoundingClientRect().right + 1;
+  return { index, x: mx };
+}
+function moveTabTo(tab, index) {
+  const from = tabs.indexOf(tab);
+  if (from === -1 || from === index) return;
+  tabs.splice(from, 1); tabs.splice(index, 0, tab);
+  const next = tabs[index + 1];
+  tabstrip.insertBefore(tab.tabEl, next ? next.tabEl : newTabBtn);
+  saveSession();
+}
+ipcRenderer.on('tab:adopt-hover', (e, d) => {
+  if (!d) { adoptMarker.style.display = 'none'; return; }
+  const r = tabstrip.getBoundingClientRect();
+  adoptMarker.style.left = adoptSlot(d.x).x + 'px';
+  adoptMarker.style.top = (r.top + 6) + 'px';
+  adoptMarker.style.display = 'block';
+});
+ipcRenderer.on('tab:adopt', (e, t) => {
+  adoptMarker.style.display = 'none';
+  if (!t || !DETACH_URL_OK.test(t.url || '')) return;
+  const slot = adoptSlot(typeof t.x === 'number' ? t.x : Infinity);
+  const tab = createTab(t.url, { title: t.title, favicon: t.favicon });
+  if (tab) moveTabTo(tab, slot.index);
+});
+const DETACH_URL_OK = /^(https?|file|chrome-extension):/i;
+let lastHoverSent = 0;
+function sendDragHover(d, on) {
+  const now = performance.now();
+  if (on && now - lastHoverSent < 50) return;
+  lastHoverSent = now;
+  ipcRenderer.send('tab:drag-hover', !!on);
 }
 
 /* ---------- Onglets (création paresseuse) ---------- */
@@ -1536,7 +1598,7 @@ function createTab(url, opts) {
 function attachWebview(tab, url) {
   const webview = document.createElement('webview');
   webview.setAttribute('partition', PARTITION);
-  webview.setAttribute('allowpopups', 'false');
+  webview.setAttribute('allowpopups', '');   // les popups sont interceptées côté main (setWindowOpenHandler) et deviennent des onglets
   webview.setAttribute('preload', PRELOAD_URL);
   webview.src = url;
   content.appendChild(webview);
@@ -1578,7 +1640,6 @@ function attachWebview(tab, url) {
     if (tab.id !== activeId || !ev.result) return;
     findCount.textContent = ev.result.matches ? ev.result.activeMatchOrdinal + ' / ' + ev.result.matches : 'Aucun résultat';
   });
-  webview.addEventListener('new-window', (ev) => createTab(ev.url));
   webview.addEventListener('focus', () => { hideContextMenu(); focusPaneOf(tab); });
 }
 
@@ -2487,48 +2548,92 @@ function dlStateLabel(s) {
   return { progressing: 'En cours', completed: 'Terminé', cancelled: 'Annulé', interrupted: 'Interrompu' }[s] || s;
 }
 let downloadsCache = [];
+let dlPopEl = null;
+const DL_POP_COUNT = 5;
+
+// Une ligne de téléchargement (panneau complet ou popup). Un fichier terminé se glisse vers une autre appli ou le bureau.
+function buildDlRow(d, onChange) {
+  const row = document.createElement('div');
+  row.className = 'dl-row';
+  const info = document.createElement('div'); info.className = 'dl-info';
+  const name = document.createElement('div'); name.className = 'dl-name'; name.textContent = d.filename;
+  const meta = document.createElement('div'); meta.className = 'dl-meta';
+  meta.textContent = dlStateLabel(d.state) + (d.totalBytes ? ' — ' + fmtBytes(d.receivedBytes) + ' / ' + fmtBytes(d.totalBytes) : '');
+  info.append(name, meta);
+  if (d.state === 'progressing' && d.totalBytes) {
+    const bar = document.createElement('div'); bar.className = 'dl-bar';
+    const fill = document.createElement('div'); fill.className = 'dl-bar-fill';
+    fill.style.width = Math.min(100, Math.round(100 * d.receivedBytes / d.totalBytes)) + '%';
+    bar.appendChild(fill); info.appendChild(bar);
+  }
+  const acts = document.createElement('div'); acts.className = 'vault-actions';
+  if (d.state === 'completed') {
+    row.classList.add('draggable');
+    row.draggable = true;
+    row.title = 'Glisser vers une application ou le bureau';
+    row.addEventListener('dragstart', (ev) => { ev.preventDefault(); ipcRenderer.send('downloads:start-drag', d.id); });
+    const open = document.createElement('button'); open.className = 'ext-btn ghost'; open.textContent = 'Ouvrir';
+    open.addEventListener('click', () => ipcRenderer.invoke('downloads:open-file', d.id));
+    const folder = document.createElement('button'); folder.className = 'ext-btn ghost'; folder.textContent = 'Dossier';
+    folder.addEventListener('click', () => ipcRenderer.invoke('downloads:show-in-folder', d.id));
+    acts.append(open, folder);
+  }
+  const rm = document.createElement('button'); rm.className = 'ext-remove'; rm.textContent = '×'; rm.title = 'Retirer de la liste';
+  rm.addEventListener('click', async (ev) => { ev.stopPropagation(); downloadsCache = await ipcRenderer.invoke('downloads:remove', d.id); onChange(); });
+  acts.appendChild(rm);
+  row.append(info, acts);
+  return row;
+}
+
 function renderDownloads() {
   dlList.innerHTML = '';
   dlEmpty.style.display = downloadsCache.length ? 'none' : 'block';
   btnDownloads.classList.toggle('active', downloadsCache.some(d => d.state === 'progressing'));
-  downloadsCache.forEach(d => {
-    const row = document.createElement('div');
-    row.className = 'dl-row';
-    const info = document.createElement('div'); info.className = 'dl-info';
-    const name = document.createElement('div'); name.className = 'dl-name'; name.textContent = d.filename;
-    const meta = document.createElement('div'); meta.className = 'dl-meta';
-    meta.textContent = dlStateLabel(d.state) + (d.totalBytes ? ' — ' + fmtBytes(d.receivedBytes) + ' / ' + fmtBytes(d.totalBytes) : '');
-    info.append(name, meta);
-    if (d.state === 'progressing' && d.totalBytes) {
-      const bar = document.createElement('div'); bar.className = 'dl-bar';
-      const fill = document.createElement('div'); fill.className = 'dl-bar-fill';
-      fill.style.width = Math.min(100, Math.round(100 * d.receivedBytes / d.totalBytes)) + '%';
-      bar.appendChild(fill); info.appendChild(bar);
-    }
-    const acts = document.createElement('div'); acts.className = 'vault-actions';
-    if (d.state === 'completed') {
-      const open = document.createElement('button'); open.className = 'ext-btn ghost'; open.textContent = 'Ouvrir';
-      open.addEventListener('click', () => ipcRenderer.invoke('downloads:open-file', d.id));
-      const folder = document.createElement('button'); folder.className = 'ext-btn ghost'; folder.textContent = 'Dossier';
-      folder.addEventListener('click', () => ipcRenderer.invoke('downloads:show-in-folder', d.id));
-      acts.append(open, folder);
-    }
-    const rm = document.createElement('button'); rm.className = 'ext-remove'; rm.textContent = '×'; rm.title = 'Retirer de la liste';
-    rm.addEventListener('click', async () => { downloadsCache = await ipcRenderer.invoke('downloads:remove', d.id); renderDownloads(); });
-    acts.appendChild(rm);
-    row.append(info, acts);
-    dlList.appendChild(row);
-  });
+  downloadsCache.forEach(d => dlList.appendChild(buildDlRow(d, renderDownloads)));
+  renderDlPopover();
+}
+
+function openDownloadsPanel() {
+  closePanels();
+  downloadsEl.classList.add('active'); btnDownloads.classList.add('toggle-on');
+  ipcRenderer.invoke('downloads:list').then(list => { downloadsCache = list; renderDownloads(); });
+}
+
+// Popup sous le bouton : les derniers téléchargements, avec un lien vers le menu complet
+function renderDlPopover() {
+  const pop = dlPopEl;
+  if (!pop) return;
+  pop.innerHTML = '';
+  const head = document.createElement('div'); head.className = 'dl-pop-head'; head.textContent = 'Téléchargements';
+  pop.appendChild(head);
+  const recent = downloadsCache.slice(0, DL_POP_COUNT);
+  if (!recent.length) {
+    const e = document.createElement('div'); e.className = 'dl-pop-empty'; e.textContent = "Aucun téléchargement pour l'instant.";
+    pop.appendChild(e);
+  } else {
+    const list = document.createElement('div'); list.className = 'dl-pop-list';
+    recent.forEach(d => list.appendChild(buildDlRow(d, renderDlPopover)));
+    pop.appendChild(list);
+  }
+  const foot = document.createElement('button'); foot.className = 'dl-pop-foot'; foot.textContent = 'Voir tous les téléchargements';
+  foot.addEventListener('click', openDownloadsPanel);
+  pop.appendChild(foot);
+  btnDownloads.classList.toggle('active', downloadsCache.some(d => d.state === 'progressing'));
 }
 ipcRenderer.on('downloads:update', (e, list) => { downloadsCache = list; renderDownloads(); });
 
 btnDownloads.addEventListener('click', async () => {
-  const wasOpen = downloadsEl.classList.contains('active');
-  closePanels();
-  if (wasOpen) { restoreTabView(); return; }
-  downloadsEl.classList.add('active'); btnDownloads.classList.add('toggle-on');
+  if (dlPopEl) { closePopover(); return; }      // popup déjà ouvert (ex. Ctrl+J une 2e fois) : on le referme
+  // Panneau complet déjà affiché : le bouton le referme
+  if (downloadsEl.classList.contains('active')) { restoreTabView(); return; }
   downloadsCache = await ipcRenderer.invoke('downloads:list');
-  renderDownloads();
+  closePanels();
+  openPopover(btnDownloads, (pop) => { pop.classList.add('dl-pop'); dlPopEl = pop; });
+  openPopoverCloser = () => { dlPopEl = null; };
+  renderDlPopover();
+  // le popover est déjà dans la page : on le recale pour sa largeur finale
+  const pop = dlPopEl;
+  if (pop) { const r = btnDownloads.getBoundingClientRect(); pop.style.left = Math.max(8, Math.min(r.right - pop.offsetWidth, window.innerWidth - pop.offsetWidth - 8)) + 'px'; }
 });
 $('downloads-close').addEventListener('click', restoreTabView);
 $('dl-clear-btn').addEventListener('click', async () => { downloadsCache = await ipcRenderer.invoke('downloads:clear'); renderDownloads(); });
@@ -3124,6 +3229,12 @@ function openExternalUrls(urls) {
 }
 // Pure déjà ouvert + double-clic sur un .html / lien externe : la page arrive dans un nouvel onglet
 ipcRenderer.on('open-urls', (e, urls) => openExternalUrls(urls));
+
+// Une page ouvre un nouvel onglet (window.open, target="_blank", clic molette) : nouvel onglet ici, pas de nouvelle fenêtre
+ipcRenderer.on('tab:open', (e, d) => {
+  if (!d || typeof d.url !== 'string' || !/^(https?|file):/i.test(d.url)) return;
+  createTab(d.url, { title: titleForUrl(d.url), skipActivate: !!d.background });
+});
 
 // Glisser-déposer un fichier .html sur l'interface (barre d'onglets, barre d'outils...) l'ouvre dans un onglet
 document.addEventListener('dragover', (e) => e.preventDefault());

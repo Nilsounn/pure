@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, ipcMain, dialog, net, clipboard, shell, nativeTheme, webContents, screen, MessageChannelMain } = require('electron');
+const { app, BrowserWindow, session, ipcMain, dialog, net, clipboard, shell, nativeTheme, nativeImage, webContents, screen, MessageChannelMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -364,6 +364,15 @@ app.on('web-contents-created', (event, contents) => {
   contents.on('did-navigate', () => perTabBlocked.set(contents.id, 0));
   contents.on('did-navigate-in-page', () => { /* navigation interne : on garde le compteur */ });
   contents.on('destroyed', () => perTabBlocked.delete(contents.id));
+
+  // window.open / target="_blank" / clic molette : jamais de nouvelle fenêtre, la page s'ouvre dans un nouvel onglet
+  contents.setWindowOpenHandler(({ url, disposition }) => {
+    const host = contents.hostWebContents;
+    if (host && !host.isDestroyed() && /^(https?|file):/i.test(url || '')) {
+      host.send('tab:open', { url, background: disposition === 'background-tab' });
+    }
+    return { action: 'deny' };
+  });
 
   // Clic droit dans une page : on relaie les infos à l'interface, qui affiche son propre menu (aux couleurs du thème)
   contents.on('context-menu', (e, params) => {
@@ -986,6 +995,18 @@ ipcMain.handle('downloads:show-in-folder', (e, id) => {
   return true;
 });
 
+let dlDragIcon = null;
+ipcMain.on('downloads:start-drag', (e, id) => {
+  const list = downloadsListFor(BrowserWindow.fromWebContents(e.sender));
+  const rec = list.find(d => d.id === id);
+  if (!rec || rec.state !== 'completed' || !fs.existsSync(rec.path)) return;
+  if (!dlDragIcon) {
+    dlDragIcon = nativeImage.createFromPath(path.join(__dirname, 'logo.png'));
+    if (!dlDragIcon.isEmpty()) dlDragIcon = dlDragIcon.resize({ width: 40, height: 40 });
+  }
+  try { e.sender.startDrag({ file: rec.path, icon: dlDragIcon }); } catch (err) { /* fichier introuvable : ignoré */ }
+});
+
 ipcMain.handle('downloads:remove', (e, id) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const list = downloadsListFor(win);
@@ -1123,10 +1144,44 @@ function detachedBounds(src) {
   return { x, y, width, height };
 }
 
+// --- Remettre un onglet dans une autre fenêtre Pure : on le dépose sur sa barre d'onglets ---
+const TAB_DROP_H = 46;   // hauteur de la zone « barre d'onglets » d'une fenêtre
+function tabDropTarget(src) {
+  const set = privateWindows.has(src) ? privateWindows : normalWindows;   // normal avec normal, privé avec privé
+  const cur = screen.getCursorScreenPoint();
+  const cands = [...set].filter(w => w !== src && !w.isDestroyed() && w.isVisible() && !w.isMinimized());
+  cands.sort((a, b) => (b.isFocused() ? 1 : 0) - (a.isFocused() ? 1 : 0));
+  const win = cands.find(w => { const b = w.getContentBounds(); return cur.x >= b.x && cur.x < b.x + b.width && cur.y >= b.y && cur.y < b.y + TAB_DROP_H; });
+  return win ? { win, x: cur.x - win.getContentBounds().x } : null;
+}
+
+let hoverWin = null;
+function setAdoptHover(win, x) {
+  if (hoverWin && hoverWin !== win && !hoverWin.isDestroyed()) hoverWin.webContents.send('tab:adopt-hover', null);
+  hoverWin = win || null;
+  if (win && !win.isDestroyed()) win.webContents.send('tab:adopt-hover', { x });
+}
+ipcMain.on('tab:drag-hover', (e, on) => {
+  const src = BrowserWindow.fromWebContents(e.sender);
+  if (!src || !(normalWindows.has(src) || privateWindows.has(src))) return;
+  const t = on ? tabDropTarget(src) : null;
+  setAdoptHover(t && t.win, t && t.x);
+});
+
 ipcMain.handle('window:detach-tab', (e, tab) => {
   const src = BrowserWindow.fromWebContents(e.sender);
   if (!src || !(normalWindows.has(src) || privateWindows.has(src))) return false;
   if (!tab || typeof tab.url !== 'string' || !DETACH_URL_RE.test(tab.url)) return false;
+  if (tab.drop) {
+    setAdoptHover(null);
+    const t = tabDropTarget(src);
+    if (t) {
+      t.win.webContents.send('tab:adopt', { url: tab.url, title: tab.title, favicon: tab.favicon, x: t.x });
+      focusWindow(t.win);
+      return true;
+    }
+    if (tab.single) return false;   // le seul onglet de la fenêtre : rien à détacher
+  }
   createDetachedWindow(src, tab);
   return true;
 });
