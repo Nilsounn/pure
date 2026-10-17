@@ -8,7 +8,7 @@ Unicode true
 
 ; Version : makensis /DVERSION=26.4 installer.nsi (à défaut, la valeur ci-dessous)
 !ifndef VERSION
-  !define VERSION "26.7"
+  !define VERSION "26.8"
 !endif
 
 !include "MUI2.nsh"

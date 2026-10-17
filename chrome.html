@@ -471,6 +471,20 @@
   .sel{ background:var(--card); color:var(--ink); border:1px solid var(--pink-line); border-radius:10px; padding:7px 10px; font-size:13px; outline:none; }
   #wp-status:empty{ display:none; }
   #wp-dim, #music-vol{ width:150px; accent-color:var(--pink-dark); }
+  .ext-icon-btn{ position:relative; }
+  .ext-icon-btn.shield-off{ opacity:.5; }
+  .ext-icon-btn.shield-off::after{ content:""; position:absolute; left:6px; right:6px; top:50%; height:2px; background:var(--rust); border-radius:2px; transform:rotate(-40deg); }
+  .sh-site{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 18px; border-bottom:1px solid var(--pink-line); font-size:13px; }
+  .sh-site b{ font-weight:600; word-break:break-all; }
+  .sh-site small{ display:block; font-size:11.5px; color:var(--ink-soft); font-weight:400; margin-top:2px; }
+  .sh-list{ padding:8px 18px 4px; }
+  .sh-list-title{ font-size:11.5px; font-weight:600; color:var(--ink-soft); margin-bottom:4px; }
+  .sh-list-items{ max-height:150px; overflow-y:auto; }
+  .sh-item{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:5px 0; font-size:12.5px; }
+  .sh-item button{ border:none; background:transparent; color:var(--ink-soft); cursor:pointer; font-size:15px; line-height:1; padding:2px 6px; border-radius:6px; }
+  .sh-item button:hover{ background:var(--pink-pale); color:var(--rust); }
+  .sh-add{ display:flex; gap:6px; padding:8px 18px 16px; }
+  .sh-add .adx-input{ padding:6px 10px; font-size:12.5px; }
   #cursor-thumb{ width:34px; height:34px; border-radius:8px; border:1px solid var(--pink-line); background:var(--pink-pale); object-fit:contain; image-rendering:pixelated; padding:3px; box-sizing:border-box; }
   #cursor-thumb.empty{ visibility:hidden; }
   .adx-input{ flex:1; min-width:0; border:1px solid var(--pink-line); background:var(--paper); color:var(--ink); border-radius:10px; padding:8px 12px; font-size:13px; outline:none; }
@@ -1829,6 +1843,7 @@ function openMenu(opts) {
   syncBrand();
   renderTiles();
   addressBar.value = '';
+  updateShieldState();
   btnBack.disabled = true; btnForward.disabled = true;
   starBtn.disabled = true; starBtn.textContent = '☆'; starBtn.classList.remove('active');
   hideCredbar();
@@ -1864,6 +1879,7 @@ function closeTab(id, opts) {
 }
 
 function updateToolbar(tab) {
+  updateShieldState();
   addressBar.value = tab.url || '';
   if (!tab.webview) { btnBack.disabled = true; btnForward.disabled = true; }
   else {
@@ -2531,10 +2547,12 @@ async function renderExtIcons() {
 
   // Pure Shield (notre bloqueur intégré) — toujours présent
   const shieldBtn = document.createElement('button');
-  shieldBtn.className = 'ext-icon-btn'; shieldBtn.title = 'Pure Shield';
+  shieldBtn.className = 'ext-icon-btn'; shieldBtn.id = 'shield-btn'; shieldBtn.title = 'Pure Shield';
   shieldBtn.innerHTML = SHIELD_SVG;
   shieldBtn.addEventListener('click', () => openShieldPopover(shieldBtn));
+  shieldBtn.addEventListener('contextmenu', (e) => { e.preventDefault(); toggleShieldForCurrentSite(); });   // clic droit : bascule direct pour le site courant
   extIconsEl.appendChild(shieldBtn);
+  updateShieldState();
 
   for (const ext of extIconsCache) {
     const btn = document.createElement('button');
@@ -2552,34 +2570,86 @@ function currentTabPageBlocked() {
   return tab && typeof tab.blockedOnPage === 'number' ? tab.blockedOnPage : 0;
 }
 
+function currentShieldHost() {
+  const cur = tabs.find(t => t.id === activeId);
+  return cur && cur.url && /^https?:/i.test(cur.url) ? hostOf(cur.url) : '';
+}
+// L'icône bouclier est barrée et estompée quand Pure Shield est désactivé sur le site de l'onglet courant
+function updateShieldState() {
+  const b = $('shield-btn');
+  if (!b) return;
+  const host = currentShieldHost();
+  const off = !!host && excludedEntriesFor(host).length > 0;
+  b.classList.toggle('shield-off', off);
+  b.title = off ? 'Pure Shield — désactivé sur ' + host + ' (clic droit : réactiver)' : (host ? 'Pure Shield — clic droit : désactiver sur ' + host : 'Pure Shield');
+}
+async function toggleShieldForCurrentSite() {
+  const host = currentShieldHost();
+  if (!host) return;
+  const covering = excludedEntriesFor(host);
+  const list = adblockExcludedList();
+  await saveAdblockExcluded(covering.length ? list.filter(x => !covering.includes(x)) : [...list, host], covering.length ? covering : [host]);
+}
+
 function openShieldPopover(anchor) {
   openPopover(anchor, (pop) => {
-    pop.innerHTML =
-      '<div class="popover-head"><div class="glyph" style="color:var(--accent-text)">' + SHIELD_SVG.replace('width="24" height="24"', 'width="40" height="40"') + '</div><div class="title">Pure Shield</div></div>' +
-      '<div class="popover-stats">' +
-      '<div class="popover-stat"><span>Bloqués sur cette page</span><b>' + currentTabPageBlocked() + '</b></div>' +
-      '<div class="popover-stat"><span>Bloqués depuis l\'installation</span><b>' + blockedLifetime.toLocaleString('fr-FR') + '</b></div>' +
-      '</div>';
-    // Activer / désactiver Pure Shield pour le site de l'onglet courant
-    const cur = tabs.find(t => t.id === activeId);
-    const host = cur && cur.url ? hostOf(cur.url) : '';
-    if (host && /^https?:/i.test(cur.url)) {
-      const covering = excludedEntriesFor(host);
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'padding:4px 18px 16px;display:flex;flex-direction:column;gap:8px;';
-      const info = document.createElement('div'); info.className = 'settings-desc'; info.style.margin = '0';
-      info.textContent = covering.length ? host + ' : bloqueur désactivé.' : host + ' : bloqueur actif.';
-      const btn = document.createElement('button'); btn.className = 'ext-btn' + (covering.length ? '' : ' ghost');
-      btn.textContent = covering.length ? 'Réactiver sur ce site' : 'Désactiver sur ce site';
-      btn.addEventListener('click', async () => {
-        const list = adblockExcludedList();
-        const next = covering.length ? list.filter(x => !covering.includes(x)) : [...list, host];
-        closePopover();
-        await saveAdblockExcluded(next, covering.length ? covering : [host]);
-      });
-      wrap.append(info, btn);
-      pop.appendChild(wrap);
-    }
+    const draw = () => {
+      pop.innerHTML = '';
+      const head = document.createElement('div');
+      head.innerHTML = '<div class="popover-head"><div class="glyph" style="color:var(--accent-text)">' + SHIELD_SVG.replace('width="24" height="24"', 'width="40" height="40"') + '</div><div class="title">Pure Shield</div></div>' +
+        '<div class="popover-stats">' +
+        '<div class="popover-stat"><span>Bloqués sur cette page</span><b>' + currentTabPageBlocked() + '</b></div>' +
+        '<div class="popover-stat"><span>Bloqués depuis l\'installation</span><b>' + blockedLifetime.toLocaleString('fr-FR') + '</b></div>' +
+        '</div>';
+      pop.appendChild(head);
+
+      // Interrupteur pour le site de l'onglet courant
+      const host = currentShieldHost();
+      if (host) {
+        const covering = excludedEntriesFor(host);
+        const row = document.createElement('div'); row.className = 'sh-site';
+        const txt = document.createElement('div');
+        txt.innerHTML = '<b></b><small></small>';
+        txt.querySelector('b').textContent = host;
+        txt.querySelector('small').textContent = covering.length ? 'Bloqueur désactivé sur ce site' : 'Bloqueur actif sur ce site';
+        const tg = document.createElement('div'); tg.className = 'toggle' + (covering.length ? '' : ' on');
+        tg.title = covering.length ? 'Réactiver le bloqueur' : 'Désactiver le bloqueur sur ce site';
+        tg.addEventListener('click', async () => { await toggleShieldForCurrentSite(); draw(); });
+        row.append(txt, tg); pop.appendChild(row);
+      }
+
+      // Liste des sites exclus : on peut en retirer ou en ajouter sans ouvrir les Réglages
+      const list = adblockExcludedList();
+      const box = document.createElement('div'); box.className = 'sh-list';
+      const title = document.createElement('div'); title.className = 'sh-list-title';
+      title.textContent = list.length ? 'Sites sans bloqueur (' + list.length + ')' : 'Aucun site exclu';
+      box.appendChild(title);
+      if (list.length) {
+        const items = document.createElement('div'); items.className = 'sh-list-items';
+        list.forEach(h => {
+          const it = document.createElement('div'); it.className = 'sh-item';
+          const nm = document.createElement('span'); nm.textContent = h;
+          const x = document.createElement('button'); x.textContent = '×'; x.title = 'Réactiver le bloqueur sur ' + h;
+          x.addEventListener('click', async () => { await saveAdblockExcluded(adblockExcludedList().filter(v => v !== h), [h]); draw(); });
+          it.append(nm, x); items.appendChild(it);
+        });
+        box.appendChild(items);
+      }
+      pop.appendChild(box);
+      const add = document.createElement('div'); add.className = 'sh-add';
+      const inp = document.createElement('input'); inp.className = 'adx-input'; inp.placeholder = 'Ajouter un site (exemple.com)'; inp.spellcheck = false;
+      const btn = document.createElement('button'); btn.className = 'ext-btn'; btn.textContent = 'Ajouter';
+      const submit = async () => {
+        const h = normalizeSiteHost(inp.value);
+        if (!h) { inp.style.borderColor = 'var(--rust)'; return; }
+        if (!adblockExcludedList().includes(h)) await saveAdblockExcluded([...adblockExcludedList(), h], [h]);
+        draw();
+      };
+      btn.addEventListener('click', submit);
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+      add.append(inp, btn); pop.appendChild(add);
+    };
+    draw();
   });
 }
 
@@ -3425,6 +3495,7 @@ function excludedEntriesFor(host) {
 async function saveAdblockExcluded(list, affectedHosts) {
   settingsCache = await ipcRenderer.invoke('settings:save', { adblockExcluded: list });
   renderAdblockExcluded();
+  updateShieldState();
   // Les pages concernées sont rechargées pour que le changement s'applique tout de suite
   tabs.forEach(t => {
     if (!t.webview || !t.url) return;

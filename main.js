@@ -26,6 +26,8 @@ app.userAgentFallback = PURE_UA;
 
 function applyIdentity(sess) {
   try { sess.setUserAgent(PURE_UA); } catch (e) { /* ignoré */ }
+  // navigator.userAgentData dans toutes les frames, y compris les fenêtres de connexion (popups)
+  try { sess.registerPreloadScript({ type: 'frame', filePath: path.join(__dirname, 'identity-preload.js') }); } catch (e) { /* ignoré */ }
   try {
     sess.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
       const h = details.requestHeaders || {};
@@ -392,6 +394,18 @@ function watchShortcuts(wc, getHost) {
   });
 }
 
+// window.open ressemble-t-il à une fenêtre de connexion ? (hôte d'authentification connu, chemin OAuth/connexion, ou popup vide)
+const AUTH_PATH_RE = /\/(oauth2?|authorize|signin|sign-in|login|log-in|sso|auth|connect|dialog\/(oauth|login))(\/|\?|$)/i;
+function isAuthPopup(url, disposition) {
+  const u = String(url || '');
+  if (u === '' || u === 'about:blank') return disposition === 'new-window';
+  if (!/^https?:/i.test(u)) return false;
+  let parsed;
+  try { parsed = new URL(u); } catch (e) { return false; }
+  if (isAuthHost(parsed.hostname)) return true;
+  return disposition === 'new-window' && AUTH_PATH_RE.test(parsed.pathname);
+}
+
 app.on('web-contents-created', (event, contents) => {
   if (contents.getType() !== 'webview') return;
   watchShortcuts(contents, () => contents.hostWebContents);
@@ -400,12 +414,33 @@ app.on('web-contents-created', (event, contents) => {
   contents.on('destroyed', () => perTabBlocked.delete(contents.id));
 
   // window.open / target="_blank" / clic molette : jamais de nouvelle fenêtre, la page s'ouvre dans un nouvel onglet
+  // Exception : les fenêtres de connexion (Google, Microsoft, OAuth…). Elles ont besoin de leur « opener » pour renvoyer
+  // le résultat à la page d'origine (postMessage + window.close) : ouvertes comme onglet, elles restaient sur une page blanche.
   contents.setWindowOpenHandler(({ url, disposition }) => {
     const host = contents.hostWebContents;
+    if (isAuthPopup(url, disposition)) {
+      const parent = host && !host.isDestroyed() ? BrowserWindow.fromWebContents(host) : null;
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 520, height: 720, parent: parent || undefined, autoHideMenuBar: true, title: 'Connexion',
+          icon: path.join(__dirname, 'build', 'icon.ico'), backgroundColor: '#ffffff'
+        }
+      };
+    }
     if (host && !host.isDestroyed() && /^(https?|file):/i.test(url || '')) {
       host.send('tab:open', { url, background: disposition === 'background-tab' });
     }
     return { action: 'deny' };
+  });
+  contents.on('did-create-window', (win) => {
+    try { win.setMenu(null); } catch (e) { /* ignoré */ }
+    // Dans la fenêtre de connexion, un lien qui veut s'ouvrir ailleurs devient un onglet de Pure
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      const host = contents.hostWebContents;
+      if (host && !host.isDestroyed() && /^https?:/i.test(url || '')) host.send('tab:open', { url, background: false });
+      return { action: 'deny' };
+    });
   });
 
   // Clic droit dans une page : on relaie les infos à l'interface, qui affiche son propre menu (aux couleurs du thème)
@@ -470,6 +505,7 @@ function loadAdblockExcluded() {
   try { adblockExcludedSet = new Set(cleanHostList(readStore().settings.adblockExcluded)); } catch (e) { adblockExcludedSet = new Set(); }
 }
 function isExcludedHost(host) {
+  if (isAuthHost(host)) return true;
   if (!adblockExcludedSet) loadAdblockExcluded();
   if (!adblockExcludedSet.size) return false;
   let h = String(host || '').toLowerCase().replace(/^www\./, '');
@@ -481,12 +517,18 @@ function isExcludedHost(host) {
   }
   return false;
 }
+// Pages et ressources de connexion (Google, Microsoft, Apple…) : jamais filtrées, un filtre qui en bloque un morceau
+// laisse une page blanche et la connexion n'aboutit pas.
+const AUTH_HOST_RE = /(^|\.)(accounts\.google\.com|accounts\.youtube\.com|apis\.google\.com|gstatic\.com|appleid\.apple\.com|login\.microsoftonline\.com|login\.microsoft\.com|login\.live\.com|id\.twitch\.tv|accounts\.spotify\.com|login\.yahoo\.com)$/;
+const isAuthHost = (h) => AUTH_HOST_RE.test(String(h || '').toLowerCase());
+
 // Site de la page (et non de la requête) : une pub chargée depuis un autre domaine suit la page qui l'affiche
 function isExcludedContents(wc) {
   try { return !!wc && !wc.isDestroyed() && isExcludedHost(hostOf(wc.getURL())); } catch (e) { return false; }
 }
 function isExcludedDetails(details) {
   try {
+    if (isAuthHost(hostOf(details.url))) return true;
     const wc = details.webContentsId != null ? webContents.fromId(details.webContentsId) : null;
     if (wc && !wc.isDestroyed() && wc.getURL()) return isExcludedHost(hostOf(wc.getURL()));
     return isExcludedHost(hostOf(details.referrer || details.url));
