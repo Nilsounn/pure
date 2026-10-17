@@ -2,6 +2,26 @@
 // il parle uniquement à l'interface de Pure via sendToHost.
 const { ipcRenderer, webFrame } = require('electron');
 
+// navigator.userAgentData (Client Hints côté JavaScript) : sans cela, un site qui le lit voit « Chromium » seul,
+// sans « Google Chrome », ce qui contredit l'user-agent et peut faire refuser la connexion (Google, notamment).
+if (/^https?:$/.test(location.protocol)) {
+  try {
+    const full = String(process.versions.chrome || '134.0.0.0');
+    const major = full.split('.')[0];
+    const plat = process.platform === 'darwin' ? 'macOS' : process.platform === 'linux' ? 'Linux' : 'Windows';
+    const code = '(function(){try{' +
+      'var major=' + JSON.stringify(major) + ',full=' + JSON.stringify(full) + ',plat=' + JSON.stringify(plat) + ';' +
+      'var brands=[{brand:"Chromium",version:major},{brand:"Google Chrome",version:major},{brand:"Not.A/Brand",version:"99"}];' +
+      'var fvl=[{brand:"Chromium",version:full},{brand:"Google Chrome",version:full},{brand:"Not.A/Brand",version:"99.0.0.0"}];' +
+      'var data={brands:brands,mobile:false,platform:plat,' +
+      'toJSON:function(){return{brands:brands,mobile:false,platform:plat}},' +
+      'getHighEntropyValues:function(){return Promise.resolve({brands:brands,mobile:false,platform:plat,platformVersion:"15.0.0",architecture:"x86",bitness:"64",model:"",uaFullVersion:full,fullVersionList:fvl,wow64:false})}};' +
+      'Object.defineProperty(Navigator.prototype,"userAgentData",{get:function(){return data},configurable:true,enumerable:true});' +
+      '}catch(e){}})();';
+    webFrame.executeJavaScript(code).catch(() => { /* page fermée */ });
+  } catch (e) { /* jamais bloquant pour la page */ }
+}
+
 // Un clic dans la page n'atteint pas l'interface de Pure : on la prévient pour qu'elle ferme ses menus ouverts
 window.addEventListener('mousedown', () => { try { ipcRenderer.sendToHost('ui:hide-menus'); } catch (e) { /* page fermée */ } }, true);
 
@@ -87,7 +107,9 @@ if (/^https?:$/.test(location.protocol)) {
   // à la place sur le lecteur lui-même : clic auto sur "passer", et si la pub
   // n'est pas "passable", on la coupe (son + avance à la fin) le temps qu'elle finisse.
   // Les bannières/pubs statiques (hors lecteur) sont masquées par CSS, sans risque.
-  if (/(^|\.)youtube\.com$/.test(location.hostname)) {
+  let siteExcluded = false;   // site exclu du bloqueur (Réglages > Sites sans bloqueur de pub)
+  try { siteExcluded = !!ipcRenderer.sendSync('pure:adblock-excluded'); } catch (e) { siteExcluded = false; }
+  if (!siteExcluded && /(^|\.)youtube\.com$/.test(location.hostname)) {
     // Le préchargement s'exécute avant que la page existe (document.head est encore null) :
     // on passe par webFrame.insertCSS, qui s'applique dès la création du document.
     try {

@@ -470,7 +470,14 @@
   #wp-thumb.empty{ background:var(--pink-pale); }
   .sel{ background:var(--card); color:var(--ink); border:1px solid var(--pink-line); border-radius:10px; padding:7px 10px; font-size:13px; outline:none; }
   #wp-status:empty{ display:none; }
-  #wp-dim{ width:150px; accent-color:var(--pink-dark); }
+  #wp-dim, #music-vol{ width:150px; accent-color:var(--pink-dark); }
+  #cursor-thumb{ width:34px; height:34px; border-radius:8px; border:1px solid var(--pink-line); background:var(--pink-pale); object-fit:contain; image-rendering:pixelated; padding:3px; box-sizing:border-box; }
+  #cursor-thumb.empty{ visibility:hidden; }
+  .adx-input{ flex:1; min-width:0; border:1px solid var(--pink-line); background:var(--paper); color:var(--ink); border-radius:10px; padding:8px 12px; font-size:13px; outline:none; }
+  .adx-input:focus{ border-color:var(--pink); }
+  .adx-item{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 4px; border-bottom:1px solid var(--pink-line); font-size:13px; }
+  .adx-item .ext-btn{ padding:3px 10px; }
+  .adx-empty{ font-size:12px; color:var(--ink-soft); padding:8px 4px; }
 </style>
 </head>
 <body>
@@ -647,6 +654,28 @@
         </div>
         <div class="ext-status" id="wp-status"></div>
         <div class="settings-row">
+          <div><div class="settings-label">Musique de fond</div><div class="settings-desc" id="music-desc">Une musique en boucle sur le Menu Pure et ses panneaux. MP3, OGG, WAV, M4A, FLAC ou OPUS.</div></div>
+          <div class="wp-controls"><button class="ext-btn" id="music-import">Importer…</button><button class="ext-btn ghost" id="music-clear">Retirer</button></div>
+        </div>
+        <div class="settings-row" id="music-opts-row">
+          <div><div class="settings-label">Lecture et volume</div><div class="settings-desc">Coupe ou relance la musique sans la retirer.</div></div>
+          <div class="wp-controls"><input type="range" id="music-vol" min="0" max="100" step="5"><div class="toggle" id="toggle-music"></div></div>
+        </div>
+        <div class="settings-row" id="music-everywhere-row">
+          <div><div class="settings-label">Continuer pendant la navigation</div><div class="settings-desc">Sinon la musique se met en pause quand tu ouvres une page, et reprend au retour sur le Menu Pure.</div></div>
+          <div class="toggle" id="toggle-music-everywhere"></div>
+        </div>
+        <div class="ext-status" id="music-status"></div>
+        <div class="settings-row">
+          <div><div class="settings-label">Curseur de souris</div><div class="settings-desc">Image PNG, JPG ou ICO (réduite à 32 px) utilisée sur le Menu Pure et les panneaux de Pure. Les pages web gardent leur curseur.</div></div>
+          <div class="wp-controls"><img id="cursor-thumb" class="empty" alt=""><button class="ext-btn" id="cursor-import">Importer…</button><button class="ext-btn ghost" id="cursor-clear">Retirer</button></div>
+        </div>
+        <div class="settings-row" id="cursor-opts-row">
+          <div><div class="settings-label">Pointe du curseur</div><div class="settings-desc">Où se trouve le point qui clique : en haut à gauche (flèche) ou au centre (viseur, rond…).</div></div>
+          <div class="wp-controls"><div class="seg" id="cursor-hot-seg"><button data-hot="tl">Coin</button><button data-hot="center">Centre</button></div><div class="toggle" id="toggle-cursor"></div></div>
+        </div>
+        <div class="ext-status" id="cursor-status"></div>
+        <div class="settings-row">
           <div><div class="settings-label">Moteur de recherche</div><div class="settings-desc">Utilisé par la barre d'adresse et le Menu Pure.</div></div>
           <select id="engine-select" class="sel"></select>
         </div>
@@ -672,6 +701,12 @@
           <div><div class="settings-label">Widgets du Menu Pure</div><div class="settings-desc">Pages récentes, tâches, notes, minuteur et compteur Pure Shield.</div></div>
           <div class="toggle" id="toggle-widgets"></div>
         </div>
+        <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:10px;">
+          <div><div class="settings-label">Sites sans bloqueur de pub</div><div class="settings-desc" style="max-width:none;">Pure Shield est désactivé sur ces sites (filtrage, masquage et saut de pub YouTube). Les sous-domaines sont inclus. Tu peux aussi le faire depuis l'icône bouclier de la barre d'outils.</div></div>
+          <div class="wp-controls" style="width:100%;"><input class="adx-input" id="adx-input" placeholder="exemple.com" spellcheck="false" autocomplete="off"><button class="ext-btn" id="adx-add">Ajouter</button></div>
+          <div id="adx-list"></div>
+        </div>
+        <div class="ext-status" id="adx-status"></div>
         <div class="settings-row">
           <div><div class="settings-label">Lancer Pure au démarrage de Windows</div><div class="settings-desc">Ouvre automatiquement Pure à l'ouverture de session.</div></div>
           <div class="toggle" id="toggle-startup"></div>
@@ -858,10 +893,20 @@ function resolveInput(input) {
   if (looksLikeUrl(t)) return /^https?:\/\//i.test(t) ? t : 'https://' + t;
   return searchUrl(t);
 }
-function setFavicon(imgEl, url) {
+// Les <img> d'icône sont masquées par défaut en CSS (display:none) : il faut les afficher explicitement.
+// (Avant, display = '' retirait juste le style en ligne et la règle CSS les gardait cachées.)
+// `alts` : icônes de secours essayées dans l'ordre si la première ne se charge pas.
+function setFavicon(imgEl, url, alts) {
   if (!url) { imgEl.style.display = 'none'; return; }
-  imgEl.src = url; imgEl.style.display = '';
-  imgEl.onerror = () => { imgEl.style.display = 'none'; };
+  const queue = [url, ...(alts || [])].filter((u, i, a) => u && a.indexOf(u) === i);
+  const next = () => {
+    const u = queue.shift();
+    if (!u) { imgEl.style.display = 'none'; return; }
+    imgEl.src = u;
+  };
+  imgEl.onerror = next;
+  imgEl.style.display = 'block';
+  next();
 }
 // Icône de site : favicon si dispo, sinon première lettre du nom
 function makeIcon(favicon, title, size) {
@@ -1606,6 +1651,8 @@ function attachWebview(tab, url) {
 
   webview.addEventListener('did-stop-loading', () => { if (tab.id === activeId) { clearTimeout(tab.thumbTimer); tab.thumbTimer = setTimeout(() => captureThumb(tab), 1200); } });
   webview.addEventListener('did-navigate', (e) => {
+    // Autre site : on retire l'ancienne icône en attendant celle de la nouvelle page
+    if (hostOf(e.url) !== hostOf(tab.url)) { tab.favicon = null; setFavicon(tab.tabEl.querySelector('.tab-favicon'), null); }
     tab.url = e.url;
     tab.pw.has = false; tab.pw.prompt = null; tab.pw.fillDismissed = false;
     if (tab.id === activeId) refreshCredbar(tab);
@@ -1625,9 +1672,12 @@ function attachWebview(tab, url) {
     saveSession();
   });
   webview.addEventListener('page-favicon-updated', (e) => {
-    const fav = e.favicons && e.favicons[0] ? e.favicons[0] : null;
+    const favs = (e.favicons || []).filter(Boolean);
+    const fav = favs[0] || null;
+    let rootIco = null;
+    try { rootIco = new URL(tab.url).origin + '/favicon.ico'; } catch (err) { /* URL invalide */ }
     tab.favicon = fav;
-    setFavicon(tab.tabEl.querySelector('.tab-favicon'), fav);
+    setFavicon(tab.tabEl.querySelector('.tab-favicon'), fav, [...favs.slice(1), rootIco]);
     recordVisit(tab.url, tab.title, fav);
     saveSession();
   });
@@ -2510,6 +2560,26 @@ function openShieldPopover(anchor) {
       '<div class="popover-stat"><span>Bloqués sur cette page</span><b>' + currentTabPageBlocked() + '</b></div>' +
       '<div class="popover-stat"><span>Bloqués depuis l\'installation</span><b>' + blockedLifetime.toLocaleString('fr-FR') + '</b></div>' +
       '</div>';
+    // Activer / désactiver Pure Shield pour le site de l'onglet courant
+    const cur = tabs.find(t => t.id === activeId);
+    const host = cur && cur.url ? hostOf(cur.url) : '';
+    if (host && /^https?:/i.test(cur.url)) {
+      const covering = excludedEntriesFor(host);
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'padding:4px 18px 16px;display:flex;flex-direction:column;gap:8px;';
+      const info = document.createElement('div'); info.className = 'settings-desc'; info.style.margin = '0';
+      info.textContent = covering.length ? host + ' : bloqueur désactivé.' : host + ' : bloqueur actif.';
+      const btn = document.createElement('button'); btn.className = 'ext-btn' + (covering.length ? '' : ' ghost');
+      btn.textContent = covering.length ? 'Réactiver sur ce site' : 'Désactiver sur ce site';
+      btn.addEventListener('click', async () => {
+        const list = adblockExcludedList();
+        const next = covering.length ? list.filter(x => !covering.includes(x)) : [...list, host];
+        closePopover();
+        await saveAdblockExcluded(next, covering.length ? covering : [host]);
+      });
+      wrap.append(info, btn);
+      pop.appendChild(wrap);
+    }
   });
 }
 
@@ -3190,6 +3260,7 @@ function applyHomeLook() {
   $('wp-dim').value = Math.round((st.wallpaperDim == null ? 0.25 : st.wallpaperDim) * 100);
   $('toggle-widgets').classList.toggle('on', st.homeWidgets !== false);
   updatePlaceholders();
+  applyMenuExtras();
 }
 $('wp-import').addEventListener('click', async () => {
   const r = await ipcRenderer.invoke('wallpaper:import');
@@ -3207,6 +3278,185 @@ $('wp-dim').addEventListener('input', (e) => {
   clearTimeout(dimTimer);
   dimTimer = setTimeout(async () => { settingsCache = await ipcRenderer.invoke('settings:save', { wallpaperDim: v }); }, 300);
 });
+/* ---------- Musique de fond, curseur du Menu Pure, sites sans bloqueur ---------- */
+const menuAudio = new Audio();
+menuAudio.loop = true; menuAudio.preload = 'auto'; menuAudio.volume = 0;
+let menuAudioSrc = '', menuAudioFade = null, menuAudioRetry = false, isMusicOwner = false, musicClaiming = false;
+
+function pureUiVisible() { return !!document.querySelector('#content > .panel.active'); }
+function menuMusicWanted() {
+  const st = settingsCache || {};
+  if (IS_PRIVATE || !st.menuMusicUrl || st.menuMusicOn === false) return false;
+  return st.menuMusicEverywhere === true || pureUiVisible();
+}
+function fadeMenuAudio(to, done) {
+  clearInterval(menuAudioFade);
+  menuAudioFade = setInterval(() => {
+    const d = to - menuAudio.volume;
+    if (Math.abs(d) <= 0.03) { menuAudio.volume = to; clearInterval(menuAudioFade); menuAudioFade = null; if (done) done(); return; }
+    menuAudio.volume = Math.min(1, Math.max(0, menuAudio.volume + Math.sign(d) * 0.03));
+  }, 30);
+}
+function armMenuAudioRetry() {   // la lecture automatique peut être refusée : on réessaie au premier clic
+  if (menuAudioRetry) return;
+  menuAudioRetry = true;
+  const h = () => { menuAudioRetry = false; document.removeEventListener('pointerdown', h, true); syncMenuMusic(); };
+  document.addEventListener('pointerdown', h, true);
+}
+function syncMenuMusic() {
+  const st = settingsCache || {};
+  const url = st.menuMusicUrl || '';
+  if (url !== menuAudioSrc) {
+    menuAudioSrc = url;
+    if (url) menuAudio.src = url; else { menuAudio.pause(); menuAudio.removeAttribute('src'); menuAudio.load(); }
+  }
+  const target = Math.min(1, Math.max(0, st.menuMusicVolume == null ? 0.4 : st.menuMusicVolume));
+  if (menuMusicWanted()) {
+    if (!isMusicOwner) {   // une seule fenêtre Pure joue la musique
+      if (!musicClaiming) {
+        musicClaiming = true;
+        ipcRenderer.invoke('menumusic:claim').then(ok => { musicClaiming = false; isMusicOwner = !!ok; if (ok) syncMenuMusic(); }).catch(() => { musicClaiming = false; });
+      }
+      return;
+    }
+    if (menuAudio.paused) {
+      menuAudio.volume = 0;
+      const pr = menuAudio.play();
+      if (pr && pr.catch) pr.catch(() => armMenuAudioRetry());
+    }
+    fadeMenuAudio(target);
+  } else if (!menuAudio.paused) {
+    fadeMenuAudio(0, () => menuAudio.pause());
+  }
+}
+// Les panneaux de Pure (Menu, Historique, Réglages…) s'affichent/masquent via la classe « active » : on suit ces changements
+new MutationObserver(() => syncMenuMusic()).observe($('content'), { subtree: true, attributes: true, attributeFilter: ['class'] });
+
+function applyMenuCursor() {
+  const st = settingsCache || {};
+  let el = document.getElementById('menu-cursor-style');
+  if (!el) { el = document.createElement('style'); el.id = 'menu-cursor-style'; document.head.appendChild(el); }
+  if (!st.menuCursorUrl || st.menuCursorOn === false) { el.textContent = ''; return; }
+  const set = (x, y) => { el.textContent = '#content > .panel, #content > .panel * { cursor: url("' + st.menuCursorUrl + '") ' + x + ' ' + y + ', auto !important; }'; };
+  if (st.menuCursorHotspot === 'center') {
+    const im = new Image();
+    im.onload = () => set(Math.round(im.naturalWidth / 2), Math.round(im.naturalHeight / 2));
+    im.onerror = () => { el.textContent = ''; };
+    im.src = st.menuCursorUrl;
+  } else set(0, 0);
+}
+
+function applyMenuExtras() {
+  const st = settingsCache || {};
+  const hasMusic = !!st.menuMusicUrl;
+  $('music-clear').style.display = hasMusic ? '' : 'none';
+  $('music-opts-row').style.display = hasMusic ? '' : 'none';
+  $('music-everywhere-row').style.display = hasMusic ? '' : 'none';
+  $('toggle-music').classList.toggle('on', st.menuMusicOn !== false);
+  $('toggle-music-everywhere').classList.toggle('on', st.menuMusicEverywhere === true);
+  $('music-vol').value = Math.round((st.menuMusicVolume == null ? 0.4 : st.menuMusicVolume) * 100);
+  $('music-desc').textContent = hasMusic
+    ? 'Musique actuelle : ' + (st.menuMusicName || 'fichier importé') + '. Lue en boucle sur le Menu Pure et ses panneaux.'
+    : 'Une musique en boucle sur le Menu Pure et ses panneaux. MP3, OGG, WAV, M4A, FLAC ou OPUS.';
+  const hasCursor = !!st.menuCursorUrl;
+  const th = $('cursor-thumb');
+  th.classList.toggle('empty', !hasCursor);
+  if (hasCursor && th.getAttribute('src') !== st.menuCursorUrl) th.src = st.menuCursorUrl;
+  $('cursor-clear').style.display = hasCursor ? '' : 'none';
+  $('cursor-opts-row').style.display = hasCursor ? '' : 'none';
+  $('toggle-cursor').classList.toggle('on', st.menuCursorOn !== false);
+  document.querySelectorAll('#cursor-hot-seg button').forEach(b => b.classList.toggle('on', b.dataset.hot === (st.menuCursorHotspot || 'tl')));
+  applyMenuCursor();
+  renderAdblockExcluded();
+  syncMenuMusic();
+}
+
+async function importMenuMedia(kind) {
+  const status = $(kind === 'music' ? 'music-status' : 'cursor-status');
+  const r = await ipcRenderer.invoke('menumedia:import', kind);
+  if (r.cancelled) return;
+  if (r.error) { status.textContent = r.error; status.classList.add('error'); return; }
+  status.textContent = ''; status.classList.remove('error');
+  settingsCache = r.settings; applyHomeLook();
+}
+$('music-import').addEventListener('click', () => importMenuMedia('music'));
+$('cursor-import').addEventListener('click', () => importMenuMedia('cursor'));
+$('music-clear').addEventListener('click', async () => { settingsCache = await ipcRenderer.invoke('menumedia:clear', 'music'); $('music-status').textContent = ''; applyHomeLook(); });
+$('cursor-clear').addEventListener('click', async () => { settingsCache = await ipcRenderer.invoke('menumedia:clear', 'cursor'); $('cursor-status').textContent = ''; applyHomeLook(); });
+$('toggle-music').addEventListener('click', async function () {
+  settingsCache = await ipcRenderer.invoke('settings:save', { menuMusicOn: !this.classList.contains('on') });
+  applyHomeLook();
+});
+$('toggle-music-everywhere').addEventListener('click', async function () {
+  settingsCache = await ipcRenderer.invoke('settings:save', { menuMusicEverywhere: !this.classList.contains('on') });
+  applyHomeLook();
+});
+let musicVolTimer = null;
+$('music-vol').addEventListener('input', (e) => {
+  const v = Number(e.target.value) / 100;
+  if (settingsCache) settingsCache.menuMusicVolume = v;
+  if (!menuAudio.paused && !menuAudioFade) menuAudio.volume = v; else syncMenuMusic();
+  clearTimeout(musicVolTimer);
+  musicVolTimer = setTimeout(async () => { settingsCache = await ipcRenderer.invoke('settings:save', { menuMusicVolume: v }); }, 300);
+});
+$('toggle-cursor').addEventListener('click', async function () {
+  settingsCache = await ipcRenderer.invoke('settings:save', { menuCursorOn: !this.classList.contains('on') });
+  applyHomeLook();
+});
+document.querySelectorAll('#cursor-hot-seg button').forEach(b => b.addEventListener('click', async () => {
+  settingsCache = await ipcRenderer.invoke('settings:save', { menuCursorHotspot: b.dataset.hot });
+  applyHomeLook();
+}));
+
+// Sites sans bloqueur de pub
+function normalizeSiteHost(input) {
+  let h = String(input || '').trim().toLowerCase();
+  if (!h) return '';
+  try { h = new URL(/^[a-z][a-z0-9+.-]*:\/\//.test(h) ? h : 'https://' + h).hostname; } catch (e) { return ''; }
+  h = h.replace(/^www\./, '');
+  return /^(localhost|[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z0-9-]{2,})$/.test(h) ? h : '';
+}
+function adblockExcludedList() { return (settingsCache && settingsCache.adblockExcluded) || []; }
+// Entrées de la liste qui couvrent ce site (lui-même ou un domaine parent)
+function excludedEntriesFor(host) {
+  host = String(host || '').replace(/^www\./, '');
+  return adblockExcludedList().filter(e => host === e || host.endsWith('.' + e));
+}
+async function saveAdblockExcluded(list, affectedHosts) {
+  settingsCache = await ipcRenderer.invoke('settings:save', { adblockExcluded: list });
+  renderAdblockExcluded();
+  // Les pages concernées sont rechargées pour que le changement s'applique tout de suite
+  tabs.forEach(t => {
+    if (!t.webview || !t.url) return;
+    const h = hostOf(t.url);
+    if (affectedHosts.some(a => h === a || h.endsWith('.' + a))) { try { t.webview.reload(); } catch (e) { /* pas encore chargé */ } }
+  });
+}
+function renderAdblockExcluded() {
+  const box = $('adx-list');
+  if (!box) return;
+  const list = adblockExcludedList();
+  box.innerHTML = '';
+  if (!list.length) { const d = document.createElement('div'); d.className = 'adx-empty'; d.textContent = 'Aucun site exclu : Pure Shield protège toutes les pages.'; box.appendChild(d); return; }
+  list.forEach(h => {
+    const row = document.createElement('div'); row.className = 'adx-item';
+    const name = document.createElement('span'); name.textContent = h;
+    const btn = document.createElement('button'); btn.className = 'ext-btn ghost'; btn.textContent = 'Retirer';
+    btn.addEventListener('click', () => saveAdblockExcluded(adblockExcludedList().filter(x => x !== h), [h]));
+    row.append(name, btn); box.appendChild(row);
+  });
+}
+async function addAdblockExcluded() {
+  const status = $('adx-status'), input = $('adx-input');
+  const h = normalizeSiteHost(input.value);
+  if (!h) { status.textContent = "Adresse invalide (exemple : exemple.com)."; status.classList.add('error'); return; }
+  status.textContent = ''; status.classList.remove('error');
+  input.value = '';
+  if (!adblockExcludedList().includes(h)) await saveAdblockExcluded([...adblockExcludedList(), h], [h]);
+}
+$('adx-add').addEventListener('click', addAdblockExcluded);
+$('adx-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addAdblockExcluded(); } });
+
 $('toggle-widgets').addEventListener('click', async function () {
   const on = !this.classList.contains('on');
   settingsCache = await ipcRenderer.invoke('settings:save', { homeWidgets: on });

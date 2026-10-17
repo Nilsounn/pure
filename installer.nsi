@@ -8,7 +8,7 @@ Unicode true
 
 ; Version : makensis /DVERSION=26.4 installer.nsi (à défaut, la valeur ci-dessous)
 !ifndef VERSION
-  !define VERSION "26.6"
+  !define VERSION "26.7"
 !endif
 
 !include "MUI2.nsh"
@@ -141,9 +141,6 @@ Section "Pure" SEC01
   SetOutPath "$INSTDIR"
   File /r "dist\Pure-win32-x64\*.*"
 
-  ; Enregistre Pure auprès de Windows : liste des navigateurs, liens http(s), fichiers .html/.htm/.xhtml/.svg
-  ExecWait '"$INSTDIR\Pure.exe" --register'
-
   WriteRegStr HKCU "Software\Pure" "InstallDir" "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
@@ -151,6 +148,10 @@ Section "Pure" SEC01
   CreateShortcut "$SMPROGRAMS\Pure\Pure.lnk" "$INSTDIR\Pure.exe" "" "$INSTDIR\Pure.exe" 0
   CreateShortcut "$SMPROGRAMS\Pure\Désinstaller Pure.lnk" "$INSTDIR\Uninstall.exe"
   CreateShortcut "$DESKTOP\Pure.lnk" "$INSTDIR\Pure.exe" "" "$INSTDIR\Pure.exe" 0
+
+  ; Enregistre Pure auprès de Windows : liste des navigateurs, liens http(s), fichiers .html/.htm/.xhtml/.svg.
+  ; Lancé APRÈS la création des raccourcis : Pure y inscrit aussi son identifiant d'application (une seule icône dans la barre des tâches).
+  ExecWait '"$INSTDIR\Pure.exe" --register'
 
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Pure" "DisplayName" "Pure"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Pure" "UninstallString" '"$INSTDIR\Uninstall.exe"'

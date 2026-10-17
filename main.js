@@ -12,6 +12,40 @@ const { crxToZip } = require('./crx');
 const { createVaultService } = require('./vault');
 const { createAdblockService } = require('./adblock');
 
+// --- Identité du navigateur ---
+// Par défaut Electron ajoute « Electron/x » et « Pure/x » à l'user-agent : Google (et d'autres sites) refusent
+// alors la connexion, y voyant une appli embarquée. Pure se présente donc comme Chrome, avec la version de
+// Chromium réellement embarquée (cohérente avec les en-têtes Client Hints et navigator.userAgentData).
+const CHROMIUM_MAJOR = String(process.versions.chrome || '134').split('.')[0];
+const UA_OS = process.platform === 'darwin' ? 'Macintosh; Intel Mac OS X 10_15_7'
+  : process.platform === 'linux' ? 'X11; Linux x86_64' : 'Windows NT 10.0; Win64; x64';
+const PURE_UA = `Mozilla/5.0 (${UA_OS}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROMIUM_MAJOR}.0.0.0 Safari/537.36`;
+const CH_PLATFORM = process.platform === 'darwin' ? 'macOS' : process.platform === 'linux' ? 'Linux' : 'Windows';
+const CH_UA = `"Chromium";v="${CHROMIUM_MAJOR}", "Google Chrome";v="${CHROMIUM_MAJOR}", "Not.A/Brand";v="99"`;
+app.userAgentFallback = PURE_UA;
+
+function applyIdentity(sess) {
+  try { sess.setUserAgent(PURE_UA); } catch (e) { /* ignoré */ }
+  try {
+    sess.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
+      const h = details.requestHeaders || {};
+      for (const k of Object.keys(h)) {
+        const lk = k.toLowerCase();
+        if (lk === 'sec-ch-ua') h[k] = CH_UA;
+        else if (lk === 'sec-ch-ua-platform') h[k] = `"${CH_PLATFORM}"`;
+      }
+      callback({ requestHeaders: h });
+    });
+  } catch (e) { /* ignoré */ }
+}
+
+// --- Barre des tâches : un seul identifiant d'application (AppUserModelID) ---
+// Sans identifiant explicite, les raccourcis (bureau, menu Démarrer, épinglé) et la fenêtre en cours n'ont pas le même
+// identifiant : Windows les traite comme deux applications et affiche deux icônes. On fixe un identifiant unique
+// pour le processus ET on l'écrit dans les raccourcis de Pure (voir fixShortcutIds).
+const AUMID = 'com.nilsounn.pure';
+if (process.platform === 'win32') app.setAppUserModelId(AUMID);
+
 // --- Bloqueur de publicités / traqueurs (filtrage réseau) ---
 const AD_BLOCK_DOMAINS = [
   'doubleclick.net', 'googlesyndication.com', 'googleadservices.com',
@@ -430,12 +464,41 @@ function countBlocked(sess, id) {
   });
 }
 
+// --- Sites exclus du bloqueur (réglage « Sites sans bloqueur de pub » et bouton de Pure Shield) ---
+let adblockExcludedSet = null;
+function loadAdblockExcluded() {
+  try { adblockExcludedSet = new Set(cleanHostList(readStore().settings.adblockExcluded)); } catch (e) { adblockExcludedSet = new Set(); }
+}
+function isExcludedHost(host) {
+  if (!adblockExcludedSet) loadAdblockExcluded();
+  if (!adblockExcludedSet.size) return false;
+  let h = String(host || '').toLowerCase().replace(/^www\./, '');
+  while (h) {
+    if (adblockExcludedSet.has(h)) return true;
+    const i = h.indexOf('.');
+    if (i < 0) break;
+    h = h.slice(i + 1);
+  }
+  return false;
+}
+// Site de la page (et non de la requête) : une pub chargée depuis un autre domaine suit la page qui l'affiche
+function isExcludedContents(wc) {
+  try { return !!wc && !wc.isDestroyed() && isExcludedHost(hostOf(wc.getURL())); } catch (e) { return false; }
+}
+function isExcludedDetails(details) {
+  try {
+    const wc = details.webContentsId != null ? webContents.fromId(details.webContentsId) : null;
+    if (wc && !wc.isDestroyed() && wc.getURL()) return isExcludedHost(hostOf(wc.getURL()));
+    return isExcludedHost(hostOf(details.referrer || details.url));
+  } catch (e) { return false; }
+}
+
 // Filtre de secours (liste de domaines) : actif uniquement le temps que le moteur de listes
 // (adblock.js) soit chargé, ou s'il n'a pas pu l'être (premier lancement hors ligne).
 // Une fois le moteur prêt, il prend la place de ce gestionnaire.
 function setupAdBlocker(sess) {
   sess.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
-    if (isBlocked(details.url)) {
+    if (isBlocked(details.url) && !isExcludedDetails(details)) {
       countBlocked(sess, details.webContentsId);
       callback({ cancel: true });
     } else {
@@ -469,7 +532,10 @@ const DEFAULT_SETTINGS = {
   perfMode: true,     // mode performance : effets visuels réduits (défilement, flous, animations plafonnées)
   freezeTabs: true,   // fige les onglets d'arrière-plan (processeur ~0)
   autoUpdate: true,   // vérifie les mises à jour au lancement et les télécharge en tâche de fond
-  askDefaultBrowser: true   // propose de définir Pure comme navigateur par défaut au lancement
+  askDefaultBrowser: true,   // propose de définir Pure comme navigateur par défaut au lancement
+  adblockExcluded: [],       // sites sur lesquels Pure Shield est désactivé
+  menuMusic: null, menuMusicName: '', menuMusicRev: 0, menuMusicOn: true, menuMusicVolume: 0.4, menuMusicEverywhere: false,
+  menuCursor: null, menuCursorRev: 0, menuCursorOn: true, menuCursorHotspot: 'tl'   // 'tl' = pointe en haut à gauche, 'center'
 };
 const ANIM_FPS_VALUES = [0, 30, 60, 120, 999];
 const WP_DIR = path.join(app.getPath('userData'), 'wallpaper');
@@ -481,19 +547,47 @@ function wallpaperUrl(st) {
   if (!fs.existsSync(file)) return null;
   return require('url').pathToFileURL(file).href + '?v=' + (st.wallpaperRev || 0);
 }
-function publicSettings(st) { return { ...st, wallpaperUrl: wallpaperUrl(st) }; }
+const MENU_DIR = path.join(app.getPath('userData'), 'menu-media');
+const MUSIC_EXTS = ['.mp3', '.ogg', '.oga', '.wav', '.m4a', '.aac', '.flac', '.opus', '.webm'];
+const CURSOR_EXTS = ['.png', '.jpg', '.jpeg', '.ico'];
+function menuMediaUrl(file, rev) {
+  if (!file) return null;
+  const full = path.join(MENU_DIR, path.basename(file));
+  if (!fs.existsSync(full)) return null;
+  return require('url').pathToFileURL(full).href + '?v=' + (rev || 0);
+}
+function publicSettings(st) {
+  return { ...st, wallpaperUrl: wallpaperUrl(st), menuMusicUrl: menuMediaUrl(st.menuMusic, st.menuMusicRev), menuCursorUrl: menuMediaUrl(st.menuCursor, st.menuCursorRev) };
+}
+
+// Liste de sites : « https://www.Exemple.com/page » -> « exemple.com » ; entrées invalides et doublons retirés
+function cleanHostList(list) {
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach(x => {
+    let h = String(x || '').trim().toLowerCase();
+    if (!h) return;
+    try { h = new URL(/^[a-z][a-z0-9+.-]*:\/\//.test(h) ? h : 'https://' + h).hostname; } catch (e) { return; }
+    h = h.replace(/^www\./, '');
+    if (!/^(localhost|[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z0-9-]{2,})$/.test(h)) return;
+    if (!out.includes(h)) out.push(h);
+  });
+  return out.slice(0, 300);
+}
 
 // Seules ces clés peuvent être modifiées depuis l'interface (le fond d'écran passe par ses propres commandes)
 function sanitizePatch(p) {
   const out = {};
   if (!p || typeof p !== 'object') return out;
-  const types = { accentColor: 'string', launchAtStartup: 'boolean', theme: 'string', wallpaperDim: 'number', searchEngine: 'string', homeWidgets: 'boolean', notes: 'string', tasks: 'object', animFps: 'number', askDefaultBrowser: 'boolean', autoUpdate: 'boolean', perfMode: 'boolean', freezeTabs: 'boolean' };
+  const types = { accentColor: 'string', launchAtStartup: 'boolean', theme: 'string', wallpaperDim: 'number', searchEngine: 'string', homeWidgets: 'boolean', notes: 'string', tasks: 'object', animFps: 'number', askDefaultBrowser: 'boolean', autoUpdate: 'boolean', perfMode: 'boolean', freezeTabs: 'boolean', adblockExcluded: 'object', menuMusicOn: 'boolean', menuMusicVolume: 'number', menuMusicEverywhere: 'boolean', menuCursorOn: 'boolean', menuCursorHotspot: 'string' };
   Object.keys(types).forEach(k => { if (k in p && typeof p[k] === types[k]) out[k] = p[k]; });
   if ('accentColor' in out && !/^#[0-9a-fA-F]{6}$/.test(out.accentColor)) delete out.accentColor;
   if ('theme' in out && !['light', 'dark', 'system'].includes(out.theme)) delete out.theme;
   if ('searchEngine' in out && !['ddg', 'google', 'brave', 'qwant', 'startpage', 'ecosia'].includes(out.searchEngine)) delete out.searchEngine;
   if ('animFps' in out && !ANIM_FPS_VALUES.includes(out.animFps)) delete out.animFps;
   if ('wallpaperDim' in out) out.wallpaperDim = Math.min(0.7, Math.max(0, out.wallpaperDim || 0));
+  if ('adblockExcluded' in out) out.adblockExcluded = cleanHostList(out.adblockExcluded);
+  if ('menuMusicVolume' in out) out.menuMusicVolume = Math.min(1, Math.max(0, out.menuMusicVolume || 0));
+  if ('menuCursorHotspot' in out && !['tl', 'center'].includes(out.menuCursorHotspot)) delete out.menuCursorHotspot;
   if ('notes' in out) out.notes = out.notes.slice(0, 5000);
   if ('tasks' in out) {
     out.tasks = Array.isArray(out.tasks)
@@ -708,12 +802,83 @@ ipcMain.handle('wallpaper:clear', () => {
   return publicSettings(data.settings);
 });
 
+// --- Musique de fond et curseur du Menu Pure (fichiers copiés dans le dossier de données de Pure) ---
+function removeMenuFiles(prefix, keep) {
+  try {
+    fs.readdirSync(MENU_DIR).forEach(f => {
+      if (f.startsWith(prefix + '-') && f !== keep) { try { fs.rmSync(path.join(MENU_DIR, f), { force: true }); } catch (err) { /* fichier en cours de lecture : retiré plus tard */ } }
+    });
+  } catch (err) { /* dossier absent */ }
+}
+
+ipcMain.handle('menumedia:import', async (e, kind) => {
+  if (kind !== 'music' && kind !== 'cursor') return { error: 'Type inconnu.' };
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const isMusic = kind === 'music';
+  const exts = isMusic ? MUSIC_EXTS : CURSOR_EXTS;
+  const r = await dialog.showOpenDialog(win, {
+    title: isMusic ? 'Choisir une musique de fond' : 'Choisir une image de curseur', properties: ['openFile'],
+    filters: [{ name: isMusic ? 'Fichiers audio' : 'Images (PNG, JPG, ICO)', extensions: exts.map(x => x.slice(1)) }]
+  });
+  if (r.canceled || !r.filePaths[0]) return { cancelled: true };
+  const src = r.filePaths[0], ext = path.extname(src).toLowerCase();
+  if (!exts.includes(ext)) return { error: 'Format non pris en charge.' };
+  try {
+    fs.mkdirSync(MENU_DIR, { recursive: true });
+    const stamp = Date.now();
+    const data = readStore();
+    let file;
+    if (isMusic) {
+      if (fs.statSync(src).size > 80 * 1024 * 1024) return { error: 'Fichier trop volumineux (80 Mo maximum).' };
+      file = 'music-' + stamp + ext;
+      fs.copyFileSync(src, path.join(MENU_DIR, file));
+      data.settings.menuMusic = file;
+      data.settings.menuMusicName = path.basename(src, ext).slice(0, 80);
+      data.settings.menuMusicRev = stamp;
+      data.settings.menuMusicOn = true;
+    } else {
+      let img = nativeImage.createFromPath(src);
+      if (img.isEmpty()) return { error: "Image illisible (essaie un PNG)." };
+      const { width, height } = img.getSize();
+      const k = Math.min(1, 32 / Math.max(width, height));   // un curseur CSS doit rester petit : 32 px maximum
+      if (k < 1) img = img.resize({ width: Math.max(1, Math.round(width * k)), height: Math.max(1, Math.round(height * k)), quality: 'best' });
+      file = 'cursor-' + stamp + '.png';
+      fs.writeFileSync(path.join(MENU_DIR, file), img.toPNG());
+      data.settings.menuCursor = file;
+      data.settings.menuCursorRev = stamp;
+      data.settings.menuCursorOn = true;
+    }
+    removeMenuFiles(isMusic ? 'music' : 'cursor', file);
+    writeStore(data);
+    return { settings: publicSettings(data.settings) };
+  } catch (err) {
+    return { error: "Impossible d'importer ce fichier : " + (err.message || err) };
+  }
+});
+
+ipcMain.handle('menumedia:clear', (e, kind) => {
+  const data = readStore();
+  if (kind === 'music') { data.settings.menuMusic = null; data.settings.menuMusicName = ''; removeMenuFiles('music', null); }
+  else if (kind === 'cursor') { data.settings.menuCursor = null; removeMenuFiles('cursor', null); }
+  writeStore(data);
+  return publicSettings(data.settings);
+});
+
+// Une seule fenêtre joue la musique (sinon chaque fenêtre Pure ouverte la jouerait)
+let musicOwnerId = null;
+ipcMain.handle('menumusic:claim', (e) => {
+  const cur = musicOwnerId != null ? webContents.fromId(musicOwnerId) : null;
+  if (!cur || cur.isDestroyed()) musicOwnerId = e.sender.id;
+  return musicOwnerId === e.sender.id;
+});
+
 ipcMain.handle('settings:save', (e, rawPatch) => {
   const patch = sanitizePatch(rawPatch);
   const data = readStore();
   data.settings = { ...data.settings, ...(patch || {}) };
   writeStore(data);
   if (patch && 'theme' in patch) applyNativeTheme(data.settings.theme);
+  if (patch && 'adblockExcluded' in patch) loadAdblockExcluded();
   if (patch && 'animFps' in patch) {
     BrowserWindow.getAllWindows().forEach(w => { if (!w.isDestroyed()) w.webContents.send('settings:anim', data.settings.animFps); });
   }
@@ -1074,6 +1239,7 @@ ipcMain.on('window:close', (e) => { const w = BrowserWindow.fromWebContents(e.se
 function ensurePrivateSession() {
   if (privateSession) return privateSession;
   privateSession = session.fromPartition('incognito-pure'); // non persistante : tout disparaît à la fermeture
+  applyIdentity(privateSession);
   setupAdBlocker(privateSession);
   if (PERF_ON) { try { privateSession.setSpellCheckerEnabled(false); } catch (e) { /* ignoré */ } }
   if (adblockSvc) adblockSvc.enableSession(privateSession);
@@ -1089,7 +1255,7 @@ function createPrivateWindow(openTab, bounds) {
     frame: false,
     icon: path.join(__dirname, 'build', 'icon.ico'),
     backgroundColor: '#141414',
-    webPreferences: { nodeIntegration: true, contextIsolation: false, webviewTag: true }
+    webPreferences: { nodeIntegration: true, contextIsolation: false, webviewTag: true, autoplayPolicy: 'no-user-gesture-required' }
   });
   watchShortcuts(win.webContents, () => win.webContents);
   win.loadFile(path.join(__dirname, 'chrome.html'), { query: { private: '1', ...tabQuery(openTab) } });
@@ -1119,7 +1285,7 @@ function createDetachedWindow(src, tab) {
     title: 'Pure', frame: false, show: false,
     icon: path.join(__dirname, 'build', 'icon.ico'),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1A1517' : '#F3D6E4',
-    webPreferences: { nodeIntegration: true, contextIsolation: false, webviewTag: true }
+    webPreferences: { nodeIntegration: true, contextIsolation: false, webviewTag: true, autoplayPolicy: 'no-user-gesture-required' }
   });
   watchShortcuts(win.webContents, () => win.webContents);
   win.once('ready-to-show', () => { if (!win.isDestroyed()) win.show(); });
@@ -1207,7 +1373,7 @@ function createWindow() {
     title: 'Pure', frame: false, show: false,
     icon: path.join(__dirname, 'build', 'icon.ico'),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1A1517' : '#F3D6E4',
-    webPreferences: { nodeIntegration: true, contextIsolation: false, webviewTag: true }
+    webPreferences: { nodeIntegration: true, contextIsolation: false, webviewTag: true, autoplayPolicy: 'no-user-gesture-required' }
   });
 
   mainWindow.once('ready-to-show', () => {
@@ -1226,6 +1392,7 @@ function createWindow() {
   thisMain.on('closed', () => normalWindows.delete(thisMain));
 
   pureSession = session.fromPartition('persist:pure');
+  applyIdentity(pureSession);
   setupAdBlocker(pureSession);
   if (PERF_ON) { try { pureSession.setSpellCheckerEnabled(false); } catch (e) { /* ignoré */ } }
   attachDownloads(pureSession, downloadsNormal, true, () => [...normalWindows].filter(w => !w.isDestroyed()));
@@ -1253,6 +1420,36 @@ function createWindow() {
   })();
 }
 
+// Écrit l'identifiant d'application dans les raccourcis de Pure (menu Démarrer, bureau, barre des tâches épinglée)
+function fixShortcutIds() {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  try {
+    const exe = process.execPath.toLowerCase();
+    const appData = app.getPath('appData');
+    const dirs = [
+      path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Pure'),
+      path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+      app.getPath('desktop'),
+      path.join(appData, 'Microsoft', 'Internet Explorer', 'Quick Launch'),
+      path.join(appData, 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar'),
+      path.join(appData, 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'StartMenu')
+    ];
+    for (const dir of dirs) {
+      let files = [];
+      try { files = fs.readdirSync(dir); } catch (e) { continue; }
+      for (const f of files) {
+        if (!/\.lnk$/i.test(f)) continue;
+        const full = path.join(dir, f);
+        try {
+          const l = shell.readShortcutLink(full);
+          if (!l.target || l.target.toLowerCase() !== exe || l.appUserModelId === AUMID) continue;
+          shell.writeShortcutLink(full, 'update', { appUserModelId: AUMID });
+        } catch (e) { /* raccourci illisible ou protégé : ignoré */ }
+      }
+    }
+  } catch (e) { /* best-effort */ }
+}
+
 app.on('second-instance', (event, argv, workingDirectory) => {
   deliverUrls(launchTargets(argv, workingDirectory));   // fichier .html ou lien ouvert pendant que Pure tourne déjà
   const wins = [...normalWindows, ...privateWindows].filter(w => !w.isDestroyed());
@@ -1266,15 +1463,16 @@ app.on('second-instance', (event, argv, workingDirectory) => {
 
 app.whenReady().then(async () => {
   if (HEADLESS) {
-    try { if (HEADLESS_REGISTER) await registerWithWindows(); else await unregisterFromWindows(); } catch (err) { /* best-effort */ }
+    try { if (HEADLESS_REGISTER) { await registerWithWindows(); fixShortcutIds(); } else await unregisterFromWindows(); } catch (err) { /* best-effort */ }
     app.exit(0);
     return;
   }
   if (!gotInstanceLock) return;
   applyNativeTheme(readStore().settings.theme);
+  loadAdblockExcluded();
   vaultSvc.load();
   createWindow();
-  adblockSvc = createAdblockService(() => [pureSession, privateSession].filter(Boolean), countBlocked);
+  adblockSvc = createAdblockService(() => [pureSession, privateSession].filter(Boolean), countBlocked, { contents: isExcludedContents, details: isExcludedDetails });
   adblockSvc.start();
 
   if (process.platform === 'win32' && app.isPackaged) {
@@ -1282,6 +1480,7 @@ app.whenReady().then(async () => {
     app.setLoginItemSettings({ openAtLogin: st.launchAtStartup !== false, path: process.execPath, args: [] });
   }
   ensureWindowsRegistration().catch(() => { /* best-effort */ });
+  setTimeout(fixShortcutIds, 3000);
   // Contrôle des mises à jour : quelques secondes après le lancement, puis toutes les 4 h
   setTimeout(autoCheckForUpdate, 8000);
   setInterval(autoCheckForUpdate, UPDATE_EVERY_MS);

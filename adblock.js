@@ -90,8 +90,11 @@ async function buildEngine({ forceDownload }) {
 /**
  * @param {() => Electron.Session[]} getSessions  sessions où activer le blocage
  * @param {(sess, webContentsId) => void} onBlocked  appelé à chaque requête bloquée/redirigée
+ * @param {{contents?: (wc) => boolean, details?: (details) => boolean}} excl  sites exclus du blocage (réglage de Pure)
  */
-function createAdblockService(getSessions, onBlocked) {
+function createAdblockService(getSessions, onBlocked, excl) {
+  const isExcludedWc = (excl && excl.contents) || (() => false);
+  const isExcludedReq = (excl && excl.details) || (() => false);
   let blocker = null;
   const enabled = new Set();
   const preloads = new Map(); // session -> id du preload d'injection
@@ -101,6 +104,7 @@ function createAdblockService(getSessions, onBlocked) {
   // On garde son CSS (async) mais on retire les scripts : ils passent par adblock-preload.js.
   const patchEngine = (b) => {
     b.onInjectCosmeticFilters = async (event, url, msg) => {
+      if (isExcludedWc(event.sender)) return;   // site exclu : aucun masquage cosmétique
       const req = Request.fromRawDetails({ url, type: 'main_frame' });
       const isFirstRun = msg === undefined;
       const { active, styles } = b.getCosmeticsFilters({
@@ -119,7 +123,7 @@ function createAdblockService(getSessions, onBlocked) {
     // Attention : returnValue répond immédiatement à l'appel synchrone, on ne l'assigne qu'une fois.
     let out = null;
     try {
-      if (blocker && typeof url === 'string') {
+      if (blocker && typeof url === 'string' && !isExcludedWc(event.sender)) {
         const req = Request.fromRawDetails({ url, type: 'main_frame' });
         const r = blocker.getCosmeticsFilters({
           domain: req.domain || '', hostname: req.hostname || '', url,
@@ -135,6 +139,13 @@ function createAdblockService(getSessions, onBlocked) {
     event.returnValue = out;
   });
 
+  // Le préchargement des pages (webview-preload.js) demande si le site courant est exclu (saut de pub YouTube côté page)
+  ipcMain.on('pure:adblock-excluded', (event) => {
+    let out = false;
+    try { out = !!isExcludedWc(event.sender); } catch (e) { out = false; }
+    event.returnValue = out;
+  });
+
   ipcMain.on('pure:yt-stuck', (event) => {
     if (ytLevel >= 2) return; // déjà au plus léger : inutile de recharger en boucle
     if (Date.now() - ytLastDegrade < 8000) return; // un seul cran à la fois
@@ -146,6 +157,10 @@ function createAdblockService(getSessions, onBlocked) {
 
   const attach = (b) => {
     patchEngine(b);
+    // Sites exclus : les requêtes passent sans filtrage (le moteur appelle ces méthodes à chaque requête)
+    const origBefore = b.onBeforeRequest, origHeaders = b.onHeadersReceived;
+    b.onBeforeRequest = (details, callback) => { if (isExcludedReq(details)) { callback({}); return; } origBefore(details, callback); };
+    b.onHeadersReceived = (details, callback) => { if (isExcludedReq(details)) { callback({}); return; } origHeaders(details, callback); };
     const handler = (request) => {
       try {
         const wc = request.tabId != null ? webContents.fromId(request.tabId) : null;
