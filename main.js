@@ -410,31 +410,8 @@ function isAuthPopup(url, disposition) {
   return disposition === 'new-window' && AUTH_PATH_RE.test(parsed.pathname);
 }
 
-// Identité Chrome complète, y compris les Client Hints (en-têtes sec-ch-ua et navigator.userAgentData), via le protocole de
-// débogage : c'est la seule façon de remplacer la marque « Electron » que Chromium annonce, et que Google détecte
-// (« Ce navigateur ou cette application ne sont peut-être pas sécurisés »). Le remplacement vaut tant que Pure est attaché à la page.
-function applyChromeIdentity(wc) {
-  try {
-    if (!wc || wc.isDestroyed()) return;
-    if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
-    const full = String(process.versions.chrome || CHROMIUM_MAJOR + '.0.0.0');
-    wc.debugger.sendCommand('Emulation.setUserAgentOverride', {
-      userAgent: PURE_UA,
-      userAgentMetadata: {
-        brands: [{ brand: 'Chromium', version: CHROMIUM_MAJOR }, { brand: 'Google Chrome', version: CHROMIUM_MAJOR }, { brand: 'Not.A/Brand', version: '99' }],
-        fullVersionList: [{ brand: 'Chromium', version: full }, { brand: 'Google Chrome', version: full }, { brand: 'Not.A/Brand', version: '99.0.0.0' }],
-        platform: CH_PLATFORM, platformVersion: process.platform === 'win32' ? '10.0.0' : '', architecture: 'x86', model: '', mobile: false, bitness: '64', wow64: false
-      }
-    }).catch(() => { /* ignoré */ });
-  } catch (e) { /* ignoré : la page garde l'identité de session */ }
-}
-let authPopupsPending = 0;   // fenêtres de connexion autorisées mais pas encore créées
-
 app.on('web-contents-created', (event, contents) => {
-  // Fenêtre de connexion tout juste créée : identité appliquée AVANT sa première requête
-  if (contents.getType() === 'window' && authPopupsPending > 0) { authPopupsPending--; applyChromeIdentity(contents); return; }
   if (contents.getType() !== 'webview') return;
-  applyChromeIdentity(contents);
   watchShortcuts(contents, () => contents.hostWebContents);
   contents.on('did-navigate', () => perTabBlocked.set(contents.id, 0));
   contents.on('did-navigate-in-page', () => { /* navigation interne : on garde le compteur */ });
@@ -447,8 +424,6 @@ app.on('web-contents-created', (event, contents) => {
     const host = contents.hostWebContents;
     if (isAuthPopup(url, disposition)) {
       const parent = host && !host.isDestroyed() ? BrowserWindow.fromWebContents(host) : null;
-      authPopupsPending++;
-      setTimeout(() => { if (authPopupsPending > 0) authPopupsPending--; }, 5000);
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
