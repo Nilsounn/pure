@@ -15,6 +15,7 @@ try {
       'var data={brands:brands,mobile:false,platform:plat,' +
       'toJSON:function(){return{brands:brands,mobile:false,platform:plat}},' +
       'getHighEntropyValues:function(){return Promise.resolve({brands:brands,mobile:false,platform:plat,platformVersion:"15.0.0",architecture:"x86",bitness:"64",model:"",uaFullVersion:full,fullVersionList:fvl,wow64:false})}};' +
+      'if(!window.chrome){window.chrome={app:{isInstalled:false},runtime:{},loadTimes:function(){return{}},csi:function(){return{}}};}' +
       'Object.defineProperty(Navigator.prototype,"userAgentData",{get:function(){return data},configurable:true,enumerable:true});' +
       '}catch(e){}})();';
     webFrame.executeJavaScript(code).catch(() => { /* page fermée */ });
