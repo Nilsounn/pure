@@ -29,13 +29,17 @@ function applyIdentity(sess) {
   // navigator.userAgentData dans toutes les frames, y compris les fenêtres de connexion (popups)
   try { sess.registerPreloadScript({ type: 'frame', filePath: path.join(__dirname, 'identity-preload.js') }); } catch (e) { /* ignoré */ }
   try {
+    // Electron n'envoie AUCUN en-tête Client Hints (sec-ch-ua*), alors que Chrome les envoie à chaque requête : Google voit un
+    // « Chrome » incomplet et refuse la connexion. On les ajoute (ou on corrige ceux qui existent).
     sess.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, (details, callback) => {
       const h = details.requestHeaders || {};
-      for (const k of Object.keys(h)) {
-        const lk = k.toLowerCase();
-        if (lk === 'sec-ch-ua') h[k] = CH_UA;
-        else if (lk === 'sec-ch-ua-platform') h[k] = `"${CH_PLATFORM}"`;
-      }
+      const set = (name, value) => {
+        const key = Object.keys(h).find(k => k.toLowerCase() === name);
+        h[key || name] = value;
+      };
+      set('sec-ch-ua', CH_UA);
+      set('sec-ch-ua-mobile', '?0');
+      set('sec-ch-ua-platform', `"${CH_PLATFORM}"`);
       callback({ requestHeaders: h });
     });
   } catch (e) { /* ignoré */ }
