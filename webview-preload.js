@@ -135,10 +135,11 @@ if (/^https?:$/.test(location.protocol)) {
     setInterval(handleAdTick, 300);
 
     // --- Message « bloqueurs de pub non autorisés » de YouTube ---
-    // 1) on retire la fenêtre et on relance la vidéo ;
-    // 2) si la vidéo ne repart pas (lecteur verrouillé par YouTube), on la remplace par le lecteur intégré
-    //    (youtube-nocookie.com/embed), sans compte ni cookies, qui n'a pas ce verrou ;
-    // 3) lecteur figé sans message : même secours après un long silence.
+    // Comme uBlock Origin, on reste sur le lecteur NATIF de YouTube (jamais d'iframe /embed dans une page
+    // youtube.com : YouTube la refuse avec l'erreur 152-4). Si le lecteur se fige :
+    // 1) on retire la fenêtre du message et on relance la vidéo ;
+    // 2) si la vidéo ne repart pas, on prévient le processus principal (pure:yt-stuck) qui recharge la page
+    //    avec des règles plus légères, puis sans aucun filtrage sur YouTube (adblock.js, niveaux 1 à 3).
     let wdUrl = location.href, wdLastT = -1, wdLastMove = Date.now(), wdNudged = false, wdReported = false, wdBlockedAt = 0;
     const wdReset = () => { wdUrl = location.href; wdLastT = -1; wdLastMove = Date.now(); wdNudged = false; wdReported = false; wdBlockedAt = 0; };
 
@@ -158,65 +159,9 @@ if (/^https?:$/.test(location.protocol)) {
       if (document.documentElement.style.overflow === 'hidden') document.documentElement.style.overflow = '';
     };
 
-    const FALLBACK_ID = 'pure-yt-fallback';
-    const hasFallback = () => !!document.getElementById(FALLBACK_ID);
-    const removeFallback = () => { const w = document.getElementById(FALLBACK_ID); if (w) w.remove(); };
-    const pauseNativeVideo = () => {
-      document.querySelectorAll('video').forEach(v => { try { if (!v.paused) v.pause(); } catch (e) { /* ignoré */ } });
-    };
-    const videoIdFromUrl = () => {
-      try {
-        const u = new URL(location.href);
-        const v = u.searchParams.get('v');
-        if (v) return v;
-        const m = u.pathname.match(/^\/(?:shorts|live|embed)\/([\w-]{6,})/);
-        return m ? m[1] : null;
-      } catch (e) { return null; }
-    };
-    const activateFallback = () => {
-      if (hasFallback()) return;
-      const id = videoIdFromUrl();
-      if (!id) return;
-      const video = document.querySelector('video.html5-main-video, video');
-      const t = video && isFinite(video.currentTime) ? video.currentTime : 0;
-      removeBlockingOverlay();
-      const u = new URL('https://www.youtube-nocookie.com/embed/' + encodeURIComponent(id));
-      u.searchParams.set('autoplay', '1');
-      u.searchParams.set('rel', '0');
-      u.searchParams.set('playsinline', '1');
-      if (t > 3) u.searchParams.set('start', String(Math.floor(t)));
-      const list = new URLSearchParams(location.search).get('list');
-      if (list) u.searchParams.set('list', list);
-
-      const host = document.querySelector('#movie_player, #player-container-inner, #player-container, #player, ytd-player');
-      if (!host) { location.replace(u.toString()); return; }   // aucune zone de lecteur trouvée : on ouvre le lecteur intégré seul
-      if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
-
-      const wrap = document.createElement('div');
-      wrap.id = FALLBACK_ID;
-      wrap.style.cssText = 'position:absolute;inset:0;z-index:2147483000;background:#000;';
-      const frame = document.createElement('iframe');
-      frame.setAttribute('src', u.toString());
-      frame.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen; clipboard-write');
-      frame.setAttribute('allowfullscreen', '');
-      frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
-      frame.setAttribute('frameborder', '0');
-      frame.style.cssText = 'width:100%;height:100%;border:0;display:block;';
-      const pill = document.createElement('button');
-      pill.textContent = 'Lecteur de secours · recharger la page';
-      pill.style.cssText = 'position:absolute;top:8px;right:8px;z-index:2;opacity:0;transition:opacity .2s;border:0;border-radius:999px;padding:4px 10px;font:12px sans-serif;color:#fff;background:rgba(0,0,0,.65);cursor:pointer;';
-      pill.addEventListener('click', () => location.reload());
-      wrap.addEventListener('mouseenter', () => { pill.style.opacity = '0.9'; });
-      wrap.addEventListener('mouseleave', () => { pill.style.opacity = '0'; });
-      wrap.append(frame, pill);
-      host.appendChild(wrap);
-      pauseNativeVideo();
-    };
-
     setInterval(() => {
-      if (location.href !== wdUrl) { removeFallback(); wdReset(); }
+      if (location.href !== wdUrl) wdReset();
       if (!/^\/(watch|shorts|live)(\/|$)/.test(location.pathname)) return;
-      if (hasFallback()) { pauseNativeVideo(); return; }
       const video = document.querySelector('video.html5-main-video, video');
       if (video && isAdShowing()) { wdLastMove = Date.now(); return; }   // les pubs sont gérées plus haut
 
@@ -229,14 +174,16 @@ if (/^https?:$/.test(location.protocol)) {
       const t = video ? video.currentTime : -1;
       if (video && Math.abs(t - wdLastT) > 0.2) { wdLastT = t; wdLastMove = Date.now(); if (!blocked) wdBlockedAt = 0; return; }   // la lecture avance
 
-      // Message vu il y a plus de 3,5 s et la vidéo ne repart pas : lecteur de secours
-      if (wdBlockedAt && Date.now() - wdBlockedAt > 3500) { activateFallback(); return; }
+      // Message vu il y a plus de 3,5 s et la vidéo ne repart pas : règles plus légères
+      if (wdBlockedAt && Date.now() - wdBlockedAt > 3500) {
+        if (!wdReported) { wdReported = true; ipcRenderer.send('pure:yt-stuck'); }
+        return;
+      }
       if (!video) return;
       if (video.paused && video.readyState >= 3 && !wdBlockedAt) { wdLastMove = Date.now(); return; }   // simple pause de l'utilisateur
       const stuckFor = Date.now() - wdLastMove;
       if (stuckFor > 8000 && !wdNudged) { wdNudged = true; video.play().catch(() => {}); }
       if (stuckFor > 14000 && !wdReported) { wdReported = true; ipcRenderer.send('pure:yt-stuck'); }
-      if (stuckFor > 22000 && wdReported) activateFallback();   // toujours figé après l'allègement des règles
     }, 1000);
   }
 }

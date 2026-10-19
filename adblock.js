@@ -15,25 +15,26 @@ const path = require('path');
 const { app, net, webContents, ipcMain } = require('electron');
 const { ElectronBlocker, Request } = require('@ghostery/adblocker-electron');
 
-const BASE = 'https://raw.githubusercontent.com/ghostery/adblocker/master/packages/adblocker/assets';
-const FILTER_LISTS = [
-  `${BASE}/easylist/easylist.txt`,
-  `${BASE}/easylist/easyprivacy.txt`,
-  `${BASE}/peter-lowe/serverlist.txt`,
-  `${BASE}/ublock-origin/badware.txt`,
-  `${BASE}/ublock-origin/filters.txt`,
-  `${BASE}/ublock-origin/filters-2020.txt`,
-  `${BASE}/ublock-origin/filters-2021.txt`,
-  `${BASE}/ublock-origin/filters-2022.txt`,
-  `${BASE}/ublock-origin/filters-2023.txt`,
-  `${BASE}/ublock-origin/filters-2024.txt`,
-  `${BASE}/ublock-origin/privacy.txt`,
-  `${BASE}/ublock-origin/quick-fixes.txt`,
-  `${BASE}/ublock-origin/resource-abuse.txt`,
-  `${BASE}/ublock-origin/unbreak.txt`,
+// Listes officielles de uBlock Origin (uAssets), celles que uBO active par défaut : elles sont mises à jour
+// plusieurs fois par semaine, notamment les règles anti-détection YouTube. Les copies de Ghostery servent
+// uniquement de secours si une liste officielle est injoignable.
+const UASSETS = 'https://ublockorigin.github.io/uAssets';
+const GHOSTERY = 'https://raw.githubusercontent.com/ghostery/adblocker/master/packages/adblocker/assets';
+const LISTS = [
+  { url: `${UASSETS}/filters/filters.min.txt`,        fallback: `${GHOSTERY}/ublock-origin/filters.txt` },
+  { url: `${UASSETS}/filters/badware.min.txt`,        fallback: `${GHOSTERY}/ublock-origin/badware.txt` },
+  { url: `${UASSETS}/filters/privacy.min.txt`,        fallback: `${GHOSTERY}/ublock-origin/privacy.txt` },
+  { url: `${UASSETS}/filters/quick-fixes.min.txt`,    fallback: `${GHOSTERY}/ublock-origin/quick-fixes.txt` },
+  { url: `${UASSETS}/filters/unbreak.min.txt`,        fallback: `${GHOSTERY}/ublock-origin/unbreak.txt` },
+  { url: `${UASSETS}/filters/resource-abuse.txt`,     fallback: `${GHOSTERY}/ublock-origin/resource-abuse.txt` },
+  { url: `${UASSETS}/thirdparties/easylist.txt`,      fallback: `${GHOSTERY}/easylist/easylist.txt` },
+  { url: `${UASSETS}/thirdparties/easyprivacy.txt`,   fallback: `${GHOSTERY}/easylist/easyprivacy.txt` },
+  { url: `${GHOSTERY}/peter-lowe/serverlist.txt` },
   // Liste française (uBO l'active automatiquement pour les navigateurs en français)
-  'https://raw.githubusercontent.com/easylist/easylistfrench/master/easylistfrench.txt'
+  { url: 'https://raw.githubusercontent.com/easylist/easylistfrench/master/easylistfrench.txt' }
 ];
+const FILTER_LISTS = LISTS.map(l => l.url);
+const FALLBACKS = new Map(LISTS.filter(l => l.fallback).map(l => [l.url, l.fallback]));
 
 
 const PRELOAD_PATH = path.join(__dirname, 'adblock-preload.js');
@@ -56,20 +57,37 @@ function bundleScriptlets(scripts) {
 //   niveau 0 : tous les scriptlets uBO (blocage maximal)
 //   niveau 1 : seulement les "set-constant" (suppression des pubs dans les données initiales du lecteur)
 //   niveau 2 : aucun scriptlet sur YouTube (reste le masquage CSS + saut de pub côté page)
+//   niveau 3 : YouTube n'est plus filtré du tout (ni réseau, ni scriptlets) : le lecteur natif marche toujours,
+//              les pubs éventuelles sont coupées/passées côté page (webview-preload.js)
 let ytLevel = 0;
 let ytLastDegrade = 0;
 const isYouTubeHost = (h) => /(^|\.)(youtube\.com|youtube-nocookie\.com)$/.test(h || '');
+const hostOfUrl = (u) => { try { return new URL(u).hostname; } catch (e) { return ''; } };
 function filterForYouTube(scripts) {
   if (ytLevel <= 0) return scripts;
   if (ytLevel === 1) return scripts.filter(sc => sc.includes('function setConstantFn('));
-  return [];
+  return [];   // niveaux 2 et 3
 }
 
-const CACHE_FILE = path.join(app.getPath('userData'), 'adblock-engine.bin');
+// Nouveau nom de cache : force le téléchargement des listes officielles uBO au premier lancement de cette version
+const CACHE_FILE = path.join(app.getPath('userData'), 'adblock-engine-ubo.bin');
+try { fs.unlinkSync(path.join(app.getPath('userData'), 'adblock-engine.bin')); } catch (e) { /* ancien cache absent */ }
 const REFRESH_MS = 24 * 60 * 60 * 1000;
 
 // net.fetch passe par la pile réseau de Chromium (proxy système inclus)
-const fetchImpl = (url, opts) => net.fetch(url, opts);
+// Une liste officielle injoignable (ou en erreur HTTP) est remplacée par sa copie de secours.
+const fetchImpl = async (url, opts) => {
+  try {
+    const r = await net.fetch(url, opts);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r;
+  } catch (e) {
+    const fb = FALLBACKS.get(url);
+    if (!fb) throw e;
+    console.warn('[adblock] liste officielle indisponible, copie de secours :', url);
+    return net.fetch(fb, opts);
+  }
+};
 
 const caching = {
   path: CACHE_FILE,
@@ -94,7 +112,17 @@ async function buildEngine({ forceDownload }) {
  */
 function createAdblockService(getSessions, onBlocked, excl) {
   const isExcludedWc = (excl && excl.contents) || (() => false);
-  const isExcludedReq = (excl && excl.details) || (() => false);
+  const baseExcludedReq = (excl && excl.details) || (() => false);
+  // Niveau 3 : toutes les requêtes émises par une page YouTube passent sans filtrage
+  const isExcludedReq = (details) => {
+    if (baseExcludedReq(details)) return true;
+    if (ytLevel < 3) return false;
+    try {
+      const wc = details.webContentsId != null ? webContents.fromId(details.webContentsId) : null;
+      const pageUrl = wc && !wc.isDestroyed() ? wc.getURL() : (details.referrer || '');
+      return isYouTubeHost(hostOfUrl(pageUrl)) || isYouTubeHost(hostOfUrl(details.url));
+    } catch (e) { return false; }
+  };
   let blocker = null;
   const enabled = new Set();
   const preloads = new Map(); // session -> id du preload d'injection
@@ -147,10 +175,10 @@ function createAdblockService(getSessions, onBlocked, excl) {
   });
 
   ipcMain.on('pure:yt-stuck', (event) => {
-    if (ytLevel >= 2) return; // déjà au plus léger : inutile de recharger en boucle
+    if (ytLevel >= 3) return; // déjà sans aucun filtrage : inutile de recharger en boucle
     if (Date.now() - ytLastDegrade < 8000) return; // un seul cran à la fois
     ytLastDegrade = Date.now();
-    ytLevel = Math.min(2, ytLevel + 1);
+    ytLevel = Math.min(3, ytLevel + 1);
     console.log('[adblock] lecteur YouTube figé -> règles allégées (niveau ' + ytLevel + ')');
     try { event.sender.reloadIgnoringCache(); } catch (e) { /* onglet fermé */ }
   });
