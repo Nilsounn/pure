@@ -97,7 +97,10 @@ if (/^https?:$/.test(location.protocol)) {
         '.ytp-ad-overlay-container, .ytp-ad-image-overlay,',
         '#masthead-ad, ytd-display-ad-renderer, ytd-promoted-sparkles-web-renderer,',
         'ytd-promoted-video-renderer, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer,',
-        '.ytd-companion-slot-renderer, #player-ads { display: none !important; }'
+        '.ytd-companion-slot-renderer, #player-ads { display: none !important; }',
+        // Fenêtre « bloqueurs de pub non autorisés » : masquée dès sa création (aucun flash), comme le filtre cosmétique de uBO
+        'ytd-enforcement-message-view-model, tp-yt-paper-dialog:has(ytd-enforcement-message-view-model),',
+        'body:has(ytd-enforcement-message-view-model) tp-yt-iron-overlay-backdrop { display: none !important; }'
       ].join(' '));
     } catch (e) { /* page fermée */ }
 
@@ -174,16 +177,16 @@ if (/^https?:$/.test(location.protocol)) {
       const t = video ? video.currentTime : -1;
       if (video && Math.abs(t - wdLastT) > 0.2) { wdLastT = t; wdLastMove = Date.now(); if (!blocked) wdBlockedAt = 0; return; }   // la lecture avance
 
-      // Message vu il y a plus de 3,5 s et la vidéo ne repart pas : règles plus légères
-      if (wdBlockedAt && Date.now() - wdBlockedAt > 3500) {
+      // Message vu il y a plus de 1,5 s et la vidéo ne repart pas : règles plus légères
+      if (wdBlockedAt && Date.now() - wdBlockedAt > 1500) {
         if (!wdReported) { wdReported = true; ipcRenderer.send('pure:yt-stuck'); }
         return;
       }
       if (!video) return;
       if (video.paused && video.readyState >= 3 && !wdBlockedAt) { wdLastMove = Date.now(); return; }   // simple pause de l'utilisateur
       const stuckFor = Date.now() - wdLastMove;
-      if (stuckFor > 8000 && !wdNudged) { wdNudged = true; video.play().catch(() => {}); }
-      if (stuckFor > 14000 && !wdReported) { wdReported = true; ipcRenderer.send('pure:yt-stuck'); }
+      if (stuckFor > 6000 && !wdNudged) { wdNudged = true; video.play().catch(() => {}); }
+      if (stuckFor > 10000 && !wdReported) { wdReported = true; ipcRenderer.send('pure:yt-stuck'); }
     }, 1000);
   }
 }
