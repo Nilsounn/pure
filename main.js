@@ -84,7 +84,9 @@ const AD_BLOCK_DOMAINS = [
 // planification des pubs passent par des chemins dédiés sur youtube.com lui-même,
 // ceux-là sont bloquables sans toucher à la lecture de la vidéo.
 const YT_AD_PATH_HOSTS = ['youtube.com', 'youtube-nocookie.com'];
-const YT_AD_PATHS = ['/api/stats/ads', '/ptracking', '/pagead/', '/get_midroll_info', '/log_event'];
+// Vide volontairement : bloquer ces requêtes propres à YouTube fait détecter le bloqueur (lecteur noir). Les pubs sont
+// retirées des données du lecteur par adblock.js / yt-defuser.js, comme le fait uBlock Origin.
+const YT_AD_PATHS = [];
 
 function isBlocked(url) {
   try {

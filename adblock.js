@@ -53,20 +53,21 @@ function bundleScriptlets(scripts) {
   return '(function(){const __sg={};' + parts.join(';\n') + '})();';
 }
 
-// Filet de sécurité YouTube : si le lecteur reste figé, le préchargement de la page le signale
-// (pure:yt-stuck) et on recharge avec des règles YouTube plus légères, jusqu'au prochain lancement.
-//   niveau 0 : défuseur complet (yt-defuser.js) + filtrage réseau + masquage CSS
-//   niveau 1 : seulement le piège sur les données initiales du lecteur
-//   niveau 2 : aucun scriptlet (on passe directement au niveau 3 en cas de blocage)
-//   niveau 3 : YouTube n'est plus filtré du tout (ni réseau, ni scriptlets) : le lecteur natif marche toujours,
-//              les pubs éventuelles sont coupées/passées côté page (webview-preload.js)
-// Le niveau est mémorisé 24 h (userData/adblock-yt-level.json) : si YouTube exige des règles plus légères sur cette machine,
-// Pure n'a pas à le redécouvrir (rechargements) à chaque lancement ; il retente le blocage maximal le lendemain.
+// YouTube détecte un bloqueur surtout quand SES PROPRES requêtes (pings de stats, pagead, etc.) échouent : c'est pourquoi uBO
+// ne s'appuie pas sur le blocage réseau sur YouTube mais retire les pubs des données du lecteur (scriptlets).
+// Pure fait pareil, avec un filet de sécurité : si le lecteur reste figé, la page le signale (pure:yt-stuck) et on recharge
+// avec des règles plus légères, un cran à la fois, jusqu'à ne plus rien filtrer.
+//   niveau 0 : défuseur complet (yt-defuser.js) ; requêtes propres à YouTube jamais bloquées, pubs tierces filtrées
+//   niveau 1 : défuseur « cœur » (piège + réponses fetch/XHR) ; plus aucun filtrage réseau ni cosmétique sur YouTube
+//   niveau 2 : seulement le piège sur les données initiales du lecteur
+//   niveau 3 : aucun filtrage ni script sur YouTube : le lecteur natif marche toujours, les pubs éventuelles sont
+//              passées/coupées côté page (webview-preload.js)
+// Le niveau est mémorisé 12 h (userData/adblock-yt-level.json) : Pure n'a pas à le redécouvrir à chaque lancement.
 const YT_LEVEL_FILE = path.join(app.getPath('userData'), 'adblock-yt-level.json');
 function loadYtLevel() {
   try {
     const j = JSON.parse(fs.readFileSync(YT_LEVEL_FILE, 'utf8'));
-    if (j && Date.now() - j.at < 24 * 60 * 60 * 1000 && [0, 1, 2, 3].includes(j.level)) return j.level;
+    if (j && Date.now() - j.at < 12 * 60 * 60 * 1000 && [0, 1, 2, 3].includes(j.level)) return j.level;
   } catch (e) { /* pas de fichier : niveau 0 */ }
   return 0;
 }
@@ -77,10 +78,9 @@ let ytLevel = loadYtLevel();
 let ytLastDegrade = 0;
 let ytDefuserSrc = '';
 try { ytDefuserSrc = fs.readFileSync(path.join(__dirname, 'yt-defuser.js'), 'utf8'); } catch (e) { console.error('[adblock] yt-defuser.js introuvable', e && e.message); }
-// niveau 0 : défuseur complet ; niveau 1 : seulement le piège sur ytInitialPlayerResponse ; niveaux 2 et 3 : aucun script
 function ytScript() {
-  if (!ytDefuserSrc || ytLevel >= 2) return '';
-  return '(function(){const PURE_FULL=' + (ytLevel === 0) + ';' + ytDefuserSrc + '\n})();';
+  if (!ytDefuserSrc || ytLevel >= 3) return '';
+  return '(function(){const PURE_LEVEL=' + ytLevel + ';' + ytDefuserSrc + '\n})();';
 }
 const isYouTubeHost = (h) => /(^|\.)(youtube\.com|youtube-nocookie\.com)$/.test(h || '');
 const hostOfUrl = (u) => { try { return new URL(u).hostname; } catch (e) { return ''; } };
@@ -128,14 +128,18 @@ async function buildEngine({ forceDownload }) {
 function createAdblockService(getSessions, onBlocked, excl) {
   const isExcludedWc = (excl && excl.contents) || (() => false);
   const baseExcludedReq = (excl && excl.details) || (() => false);
-  // Niveau 3 : toutes les requêtes émises par une page YouTube passent sans filtrage
+  // Requêtes propres à YouTube (jamais bloquées : un échec de ces requêtes déclenche la détection de bloqueur)
+  const isYouTubeOwn = (h) => /(^|\.)(youtube\.com|youtube-nocookie\.com|ytimg\.com|googlevideo\.com|ggpht\.com|gstatic\.com|googleapis\.com|googleusercontent\.com)$/.test(h || '');
   const isExcludedReq = (details) => {
     if (baseExcludedReq(details)) return true;
-    if (ytLevel < 3) return false;
     try {
+      const reqHost = hostOfUrl(details.url);
       const wc = details.webContentsId != null ? webContents.fromId(details.webContentsId) : null;
       const pageUrl = wc && !wc.isDestroyed() ? wc.getURL() : (details.referrer || '');
-      return isYouTubeHost(hostOfUrl(pageUrl)) || isYouTubeHost(hostOfUrl(details.url));
+      const onYouTube = isYouTubeHost(hostOfUrl(pageUrl)) || isYouTubeHost(reqHost);
+      if (!onYouTube) return false;
+      if (ytLevel >= 1) return true;      // niveaux 1 à 3 : YouTube n'est plus filtré
+      return isYouTubeOwn(reqHost);       // niveau 0 : seules les pubs tierces (doubleclick, etc.) restent filtrées
     } catch (e) { return false; }
   };
   let blocker = null;
@@ -149,6 +153,7 @@ function createAdblockService(getSessions, onBlocked, excl) {
     b.onInjectCosmeticFilters = async (event, url, msg) => {
       if (isExcludedWc(event.sender)) return;   // site exclu : aucun masquage cosmétique
       const req = Request.fromRawDetails({ url, type: 'main_frame' });
+      if (ytLevel >= 1 && isYouTubeHost(req.hostname)) return;   // YouTube allégé : aucun masquage de la liste
       const isFirstRun = msg === undefined;
       const { active, styles } = b.getCosmeticsFilters({
         domain: req.domain || '', hostname: req.hostname || '', url,
@@ -176,7 +181,7 @@ function createAdblockService(getSessions, onBlocked, excl) {
         if (r.active !== false) {
           // YouTube : défuseur de Pure à la place des scriptlets du moteur (qui ne gère pas les scriptlets « trusted » de uBO)
           const code = isYouTubeHost(req.hostname) ? ytScript() : bundleScriptlets(r.scripts);
-          out = { styles: r.styles || '', code };
+          out = { styles: (ytLevel >= 1 && isYouTubeHost(req.hostname)) ? '' : (r.styles || ''), code };
         }
       }
     } catch (e) { out = null; }
@@ -194,7 +199,7 @@ function createAdblockService(getSessions, onBlocked, excl) {
     if (ytLevel >= 3) return; // déjà sans aucun filtrage : inutile de recharger en boucle
     if (Date.now() - ytLastDegrade < 2500) return; // un seul cran à la fois (la page renvoie son signal tant que le lecteur reste figé)
     ytLastDegrade = Date.now();
-    ytLevel = ytLevel === 1 ? 3 : Math.min(3, ytLevel + 1);   // le niveau 2 (réseau filtré, sans défuseur) ne règle jamais la détection
+    ytLevel = Math.min(3, ytLevel + 1);
     saveYtLevel(ytLevel);
     console.log('[adblock] lecteur YouTube figé -> règles allégées (niveau ' + ytLevel + ')');
     try { event.sender.reloadIgnoringCache(); } catch (e) { /* onglet fermé */ }

@@ -193,8 +193,8 @@ if (/^https?:$/.test(location.protocol)) {
       if (!video) return;
       if (video.paused && video.readyState >= 3 && !wdBlockedAt) { wdLastMove = Date.now(); return; }   // simple pause de l'utilisateur
       const stuckFor = Date.now() - wdLastMove;
-      if (stuckFor > 6000 && !wdNudged) { wdNudged = true; video.play().catch(() => {}); }
-      if (stuckFor > 10000) reportStuck();
+      if (stuckFor > 5000 && !wdNudged) { wdNudged = true; video.play().catch(() => {}); }
+      if (stuckFor > 8000) reportStuck();
     }, 1000);
   }
 }

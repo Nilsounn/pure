@@ -7,9 +7,10 @@
 //   - adjust-setTimeout [native code] 17000 0.001 : le minuteur de 17 s de la détection de bloqueur part tout de suite
 //   - remove-node-text script 'window,"fetch"' : le script de détection qui contrôle fetch est vidé avant d'être exécuté
 //   - trusted-prevent-dom-bypass : les iframes créées par YouTube pour retrouver un fetch "propre" sont traitées pareil
-// Ce fichier n'est pas exécuté par Electron : adblock.js le lit, le préfixe de `const PURE_FULL = true|false;`
-// (false = niveau léger : seulement le piège sur ytInitialPlayerResponse) et l'injecte via adblock-preload.js.
-/* global PURE_FULL */
+// Ce fichier n'est pas exécuté par Electron : adblock.js le lit, le préfixe de `const PURE_LEVEL = 0|1|2;` et l'injecte
+// via adblock-preload.js. Niveaux : 0 = tout ; 1 = piège + réécriture des réponses fetch/XHR (sans crochets sur le DOM
+// ni sur les minuteurs) ; 2 = seulement le piège sur ytInitialPlayerResponse.
+/* global PURE_LEVEL */
 if (!window.__pureYtDefuser) {
   try { Object.defineProperty(window, '__pureYtDefuser', { value: 1 }); } catch (e) { /* ignoré */ }
 
@@ -58,7 +59,9 @@ if (!window.__pureYtDefuser) {
   };
   trap('ytInitialPlayerResponse');
 
-  if (PURE_FULL) {
+  let installAll = () => {};   // défini au niveau 0 ou 1, réutilisé pour les iframes (niveau 0)
+
+  if (PURE_LEVEL <= 1) {
     // 2) fetch
     const hookFetch = (win) => {
       const orig = win.fetch;
@@ -74,7 +77,7 @@ if (!window.__pureYtDefuser) {
               const text = await res.clone().text();
               const out = transform(url, text);
               if (out === text) return res;
-              const r = new win.Response(out, { status: res.status, statusText: res.statusText, headers: res.headers });
+              const r = new (win.Response || Response)(out, { status: res.status, statusText: res.statusText, headers: res.headers });
               try { Object.defineProperty(r, 'url', { value: res.url }); } catch (e) { /* ignoré */ }
               return r;
             } catch (e) { return res; }
@@ -124,12 +127,15 @@ if (!window.__pureYtDefuser) {
       win.setTimeout = proxy;
     };
 
-    const installAll = (win) => {
+    installAll = (win) => {
       try { hookFetch(win); } catch (e) { /* iframe d'une autre origine */ }
       try { hookXhr(win); } catch (e) { /* idem */ }
-      try { hookTimeout(win); } catch (e) { /* idem */ }
+      if (PURE_LEVEL === 0) { try { hookTimeout(win); } catch (e) { /* idem */ } }
     };
     installAll(window);
+  }
+
+  if (PURE_LEVEL === 0) {
 
     // 5) Iframes créées par la page : même traitement, sinon elles servent un fetch « propre » à YouTube
     const wrapInsert = (proto, name) => {
