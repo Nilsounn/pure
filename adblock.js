@@ -126,7 +126,13 @@ async function buildEngine({ forceDownload }) {
  * @param {{contents?: (wc) => boolean, details?: (details) => boolean}} excl  sites exclus du blocage (réglage de Pure)
  */
 function createAdblockService(getSessions, onBlocked, excl) {
-  const isExcludedWc = (excl && excl.contents) || (() => false);
+  const baseExcludedWc = (excl && excl.contents) || (() => false);
+  // Niveau 3 : YouTube est traité exactement comme un site de « Sites sans bloqueur de pub » (aucun script, style, saut de pub)
+  const isExcludedWc = (wc) => {
+    if (baseExcludedWc(wc)) return true;
+    if (ytLevel < 3) return false;
+    try { return isYouTubeHost(hostOfUrl(wc.getURL())); } catch (e) { return false; }
+  };
   const baseExcludedReq = (excl && excl.details) || (() => false);
   // Requêtes propres à YouTube (jamais bloquées : un échec de ces requêtes déclenche la détection de bloqueur)
   const isYouTubeOwn = (h) => /(^|\.)(youtube\.com|youtube-nocookie\.com|ytimg\.com|googlevideo\.com|ggpht\.com|gstatic\.com|googleapis\.com|googleusercontent\.com)$/.test(h || '');
@@ -195,7 +201,18 @@ function createAdblockService(getSessions, onBlocked, excl) {
     event.returnValue = out;
   });
 
-  ipcMain.on('pure:yt-stuck', (event) => {
+  const YT_LOG = path.join(app.getPath('userData'), 'adblock-yt.log');
+  const ytLog = (line) => {
+    try {
+      let old = '';
+      try { old = fs.readFileSync(YT_LOG, 'utf8'); } catch (e) { /* premier signal */ }
+      const lines = (old + new Date().toISOString() + ' ' + line + '\n').split('\n');
+      fs.writeFileSync(YT_LOG, lines.slice(-200).join('\n'));
+    } catch (e) { /* journal facultatif */ }
+  };
+
+  ipcMain.on('pure:yt-stuck', (event, why, diag) => {
+    ytLog('[niveau ' + ytLevel + '] ' + String(why || '?').slice(0, 60) + ' ' + String(diag || '').slice(0, 600));
     if (ytLevel >= 3) return; // déjà sans aucun filtrage : inutile de recharger en boucle
     if (Date.now() - ytLastDegrade < 2500) return; // un seul cran à la fois (la page renvoie son signal tant que le lecteur reste figé)
     ytLastDegrade = Date.now();

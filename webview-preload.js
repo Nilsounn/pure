@@ -143,8 +143,8 @@ if (/^https?:$/.test(location.protocol)) {
     // 1) on retire la fenêtre du message et on relance la vidéo ;
     // 2) si la vidéo ne repart pas, on prévient le processus principal (pure:yt-stuck) qui recharge la page
     //    avec des règles plus légères, puis sans aucun filtrage sur YouTube (adblock.js, niveaux 1 à 3).
-    let wdUrl = location.href, wdLastT = -1, wdLastMove = Date.now(), wdNudged = false, wdReportedAt = 0, wdBlockedAt = 0;
-    const wdReset = () => { wdUrl = location.href; wdLastT = -1; wdLastMove = Date.now(); wdNudged = false; wdReportedAt = 0; wdBlockedAt = 0; };
+    let wdUrl = location.href, wdLastT = -1, wdLastMove = Date.now(), wdNudged = false, wdReportedAt = 0, wdBlockedAt = 0, wdNoVideoAt = 0;
+    const wdReset = () => { wdUrl = location.href; wdLastT = -1; wdLastMove = Date.now(); wdNudged = false; wdReportedAt = 0; wdBlockedAt = 0; wdNoVideoAt = 0; };
 
     const ADBLOCK_TEXT = /ad.?block|bloqueur|publicit|terms of service|conditions d.utilisation/i;
     const enforcementPresent = () => {
@@ -162,12 +162,30 @@ if (/^https?:$/.test(location.protocol)) {
       if (document.documentElement.style.overflow === 'hidden') document.documentElement.style.overflow = '';
     };
 
+    // État du lecteur, écrit dans adblock-yt.log (dossier de données de Pure) à chaque signal : permet de savoir POURQUOI
+    // YouTube ne lance pas la vidéo (statut de lecture renvoyé par YouTube, élément vidéo absent, message de blocage...).
+    const collectDiag = async () => {
+      const v = document.querySelector('video');
+      let playability = '';
+      try {
+        playability = await webFrame.executeJavaScript("(function(){try{var p=window.ytInitialPlayerResponse;var s=p&&p.playabilityStatus;return s?(s.status+'|'+(s.reason||'')):'pas de ytInitialPlayerResponse'}catch(e){return 'erreur'}})()");
+      } catch (e) { playability = 'executeJavaScript refusé'; }
+      return JSON.stringify({
+        chemin: location.pathname,
+        video: v ? { readyState: v.readyState, paused: v.paused, t: Math.round(v.currentTime * 10) / 10, erreur: v.error ? v.error.code : null } : null,
+        lecteur: !!document.querySelector('#movie_player'),
+        messageBloqueur: enforcementPresent(),
+        playability
+      });
+    };
     // Signal renvoyé toutes les 3,5 s tant que le lecteur reste figé : le processus principal ne descend que d'un cran
     // à la fois, et un seul signal perdu laissait la vidéo bloquée pour de bon.
-    const reportStuck = () => {
+    const reportStuck = async (why) => {
       if (Date.now() - wdReportedAt < 3500) return;
       wdReportedAt = Date.now();
-      ipcRenderer.send('pure:yt-stuck');
+      let diag = '';
+      try { diag = await collectDiag(); } catch (e) { diag = 'diag impossible'; }
+      ipcRenderer.send('pure:yt-stuck', why, diag);
     };
 
     setInterval(() => {
@@ -175,6 +193,17 @@ if (/^https?:$/.test(location.protocol)) {
       if (!/^\/(watch|shorts|live)(\/|$)/.test(location.pathname)) return;
       const video = document.querySelector('video.html5-main-video, video');
       if (video && isAdShowing()) { wdLastMove = Date.now(); return; }   // les pubs sont gérées plus haut
+
+      // Rectangle noir : le lecteur n'a jamais créé d'élément vidéo (c'était le cas où Pure ne détectait rien du tout)
+      if (!video) {
+        const err = document.querySelector('yt-player-error-message-renderer, .ytp-error');
+        const realError = err && isVisible(err) && !ADBLOCK_TEXT.test(err.textContent || '');   // vidéo vraiment indisponible : pas notre faute
+        if (!realError) {
+          if (!wdNoVideoAt) wdNoVideoAt = Date.now();
+          if (Date.now() - wdNoVideoAt > 8000) reportStuck('aucun élément vidéo');
+        }
+        if (!enforcementPresent()) return;
+      } else { wdNoVideoAt = 0; }
 
       const blocked = enforcementPresent();
       if (blocked) {
@@ -187,14 +216,14 @@ if (/^https?:$/.test(location.protocol)) {
 
       // Message vu il y a plus de 1,5 s et la vidéo ne repart pas : règles plus légères
       if (wdBlockedAt && Date.now() - wdBlockedAt > 1500) {
-        reportStuck();
+        reportStuck('message de blocage');
         return;
       }
       if (!video) return;
       if (video.paused && video.readyState >= 3 && !wdBlockedAt) { wdLastMove = Date.now(); return; }   // simple pause de l'utilisateur
       const stuckFor = Date.now() - wdLastMove;
       if (stuckFor > 5000 && !wdNudged) { wdNudged = true; video.play().catch(() => {}); }
-      if (stuckFor > 8000) reportStuck();
+      if (stuckFor > 8000) reportStuck('lecture figée');
     }, 1000);
   }
 }
