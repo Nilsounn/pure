@@ -192,7 +192,7 @@ function createAdblockService(getSessions, onBlocked, excl) {
 
   ipcMain.on('pure:yt-stuck', (event) => {
     if (ytLevel >= 3) return; // déjà sans aucun filtrage : inutile de recharger en boucle
-    if (Date.now() - ytLastDegrade < 8000) return; // un seul cran à la fois
+    if (Date.now() - ytLastDegrade < 2500) return; // un seul cran à la fois (la page renvoie son signal tant que le lecteur reste figé)
     ytLastDegrade = Date.now();
     ytLevel = ytLevel === 1 ? 3 : Math.min(3, ytLevel + 1);   // le niveau 2 (réseau filtré, sans défuseur) ne règle jamais la détection
     saveYtLevel(ytLevel);

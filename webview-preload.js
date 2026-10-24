@@ -143,8 +143,8 @@ if (/^https?:$/.test(location.protocol)) {
     // 1) on retire la fenêtre du message et on relance la vidéo ;
     // 2) si la vidéo ne repart pas, on prévient le processus principal (pure:yt-stuck) qui recharge la page
     //    avec des règles plus légères, puis sans aucun filtrage sur YouTube (adblock.js, niveaux 1 à 3).
-    let wdUrl = location.href, wdLastT = -1, wdLastMove = Date.now(), wdNudged = false, wdReported = false, wdBlockedAt = 0;
-    const wdReset = () => { wdUrl = location.href; wdLastT = -1; wdLastMove = Date.now(); wdNudged = false; wdReported = false; wdBlockedAt = 0; };
+    let wdUrl = location.href, wdLastT = -1, wdLastMove = Date.now(), wdNudged = false, wdReportedAt = 0, wdBlockedAt = 0;
+    const wdReset = () => { wdUrl = location.href; wdLastT = -1; wdLastMove = Date.now(); wdNudged = false; wdReportedAt = 0; wdBlockedAt = 0; };
 
     const ADBLOCK_TEXT = /ad.?block|bloqueur|publicit|terms of service|conditions d.utilisation/i;
     const enforcementPresent = () => {
@@ -160,6 +160,14 @@ if (/^https?:$/.test(location.protocol)) {
       document.querySelectorAll('tp-yt-iron-overlay-backdrop.opened').forEach(el => el.remove());
       if (document.body && document.body.style.overflow === 'hidden') document.body.style.overflow = '';
       if (document.documentElement.style.overflow === 'hidden') document.documentElement.style.overflow = '';
+    };
+
+    // Signal renvoyé toutes les 3,5 s tant que le lecteur reste figé : le processus principal ne descend que d'un cran
+    // à la fois, et un seul signal perdu laissait la vidéo bloquée pour de bon.
+    const reportStuck = () => {
+      if (Date.now() - wdReportedAt < 3500) return;
+      wdReportedAt = Date.now();
+      ipcRenderer.send('pure:yt-stuck');
     };
 
     setInterval(() => {
@@ -179,14 +187,14 @@ if (/^https?:$/.test(location.protocol)) {
 
       // Message vu il y a plus de 1,5 s et la vidéo ne repart pas : règles plus légères
       if (wdBlockedAt && Date.now() - wdBlockedAt > 1500) {
-        if (!wdReported) { wdReported = true; ipcRenderer.send('pure:yt-stuck'); }
+        reportStuck();
         return;
       }
       if (!video) return;
       if (video.paused && video.readyState >= 3 && !wdBlockedAt) { wdLastMove = Date.now(); return; }   // simple pause de l'utilisateur
       const stuckFor = Date.now() - wdLastMove;
       if (stuckFor > 6000 && !wdNudged) { wdNudged = true; video.play().catch(() => {}); }
-      if (stuckFor > 10000 && !wdReported) { wdReported = true; ipcRenderer.send('pure:yt-stuck'); }
+      if (stuckFor > 10000) reportStuck();
     }, 1000);
   }
 }

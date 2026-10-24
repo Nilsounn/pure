@@ -5,6 +5,7 @@
 //     dans les réponses /youtubei/v1/{player,next,get_watch}
 //   - json-prune-fetch-response sur reel_watch_sequence (publicités des Shorts)
 //   - adjust-setTimeout [native code] 17000 0.001 : le minuteur de 17 s de la détection de bloqueur part tout de suite
+//   - remove-node-text script 'window,"fetch"' : le script de détection qui contrôle fetch est vidé avant d'être exécuté
 //   - trusted-prevent-dom-bypass : les iframes créées par YouTube pour retrouver un fetch "propre" sont traitées pareil
 // Ce fichier n'est pas exécuté par Electron : adblock.js le lit, le préfixe de `const PURE_FULL = true|false;`
 // (false = niveau léger : seulement le piège sur ytInitialPlayerResponse) et l'injecte via adblock-preload.js.
@@ -137,6 +138,7 @@ if (!window.__pureYtDefuser) {
         if (typeof orig !== 'function') return;
         proto[name] = new Proxy(orig, {
           apply(t, th, a) {
+            try { a.forEach(neuter); } catch (e) { /* ignoré */ }
             const r = Reflect.apply(t, th, a);
             try { for (const n of a) { if (n && n.nodeName === 'IFRAME' && n.contentWindow) installAll(n.contentWindow); } } catch (e) { /* ignoré */ }
             return r;
@@ -144,6 +146,22 @@ if (!window.__pureYtDefuser) {
         });
       } catch (e) { /* ignoré */ }
     };
+    // 6) remove-node-text : vide le script de détection qui vérifie fetch avant son exécution
+    const NEEDLE = 'window,"fetch"';
+    const neuter = (n) => {
+      try {
+        if (!n || n.nodeName !== 'SCRIPT' || n.src) return;
+        const txt = n.textContent;
+        if (typeof txt !== 'string' || txt.indexOf(NEEDLE) === -1) return;
+        let done = false;
+        try { n.childNodes.forEach((c) => { if (c.nodeType === 3) { c.data = ''; done = true; } }); } catch (e) { /* ignoré */ }
+        if (!done) n.textContent = '';
+      } catch (e) { /* Trusted Types ou nœud figé : on laisse */ }
+    };
+    try {
+      new MutationObserver((ms) => { for (const m of ms) m.addedNodes.forEach(neuter); })
+        .observe(document, { childList: true, subtree: true });
+    } catch (e) { /* ignoré */ }
     wrapInsert(Node.prototype, 'appendChild');
     wrapInsert(Node.prototype, 'insertBefore');
     wrapInsert(Element.prototype, 'append');
